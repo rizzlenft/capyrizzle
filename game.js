@@ -1,1796 +1,999 @@
-/* CapyRizzle Rush — main game */
+/*
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  CapyRizzle Rush
+ *  ───────────────
+ *  Strict separation between GAME LOGIC and DECORATION.
+ *
+ *  ┌─────────────────────────┐    ┌──────────────────────────────────┐
+ *  │  Game logic (state +    │    │  Cosmetics                       │
+ *  │  physics + spawn +      │    │  • pure decoration               │
+ *  │  collision + scoring)   │    │  • never affects collision/score │
+ *  │  NEVER reads Cosmetics  │    │  • free to add unlimited         │
+ *  │                         │    │    capybara madness later        │
+ *  └─────────────────────────┘    └──────────────────────────────────┘
+ *           │                                       ▲
+ *           ▼                                       │
+ *  ┌─────────────────────────────────────────────────────────────────┐
+ *  │  Sprite registry                                                │
+ *  │  Sprite.draw('truck', x, y, w, h) — uses a loaded PNG if        │
+ *  │  registered, else calls a procedural fallback. Swapping in art  │
+ *  │  later is a one-line registration; no game code changes.        │
+ *  └─────────────────────────────────────────────────────────────────┘
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 (() => {
   'use strict';
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Setup
-  // ───────────────────────────────────────────────────────────────────────
+  // ─── DOM ──────────────────────────────────────────────────────────────
   const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;   // 960
-  const H = canvas.height;  // 540
+  const ctx    = canvas.getContext('2d');
+  const W      = canvas.width;   // 960
+  const H      = canvas.height;  // 540
 
   const $ = (id) => document.getElementById(id);
-  const elTitle = $('title');
-  const elGameOver = $('gameover');
-  const elHud = $('hud');
-  const elScore = $('score');
-  const elBest = $('best');
-  const elBoost = $('boost');
-  const elFinal = $('finalScore');
-  const elFinalBest = $('finalBest');
-  const btnStart = $('start');
-  const btnRetry = $('retry');
+  const elTitle      = $('title');
+  const elGameOver   = $('gameover');
+  const elHud        = $('hud');
+  const elScore      = $('score');
+  const elBest       = $('best');
+  const elBoost      = $('boost');
+  const elBoostLabel = $('boostLabel');
+  const elFinal      = $('finalScore');
+  const elFinalSmash = $('finalSmashed');
+  const elFinalBest  = $('finalBest');
+  const elNewBest    = $('newBest');
+  const btnStart     = $('start');
+  const btnRetry     = $('retry');
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Constants (tuning)
-  // ───────────────────────────────────────────────────────────────────────
-  const GROUND_Y = 440;             // top of the road surface
-  const TRUCK_X  = 180;             // truck screen x (stays fixed)
-  const TRUCK_W  = 150;
-  const TRUCK_H  = 76;
-  const GRAVITY  = 2200;            // px/s^2
-  const JUMP_V   = -880;            // initial jump velocity
+  // ─── TUNING ───────────────────────────────────────────────────────────
+  const GROUND_Y = 450;
+  const TRUCK_X  = 200;
+  const TRUCK_W  = 160;
+  const TRUCK_H  = 80;
 
-  const BASE_SPEED = 180;           // starting world speed (px/s) — chill opening
-  const MAX_SPEED  = 540;
-  const SPEED_RAMP = 0.28;          // speed gained per second of play
+  // Jump feel
+  const GRAVITY        = 2400;     // px/s^2 base
+  const JUMP_V         = -920;     // initial jump velocity
+  const APEX_GRAV_MUL  = 0.55;     // gravity multiplier near the apex (hang time)
+  const APEX_BAND      = 220;      // |vy| below which we're "near apex"
+  const CROUCH_TIME    = 0.07;     // seconds of anticipation crouch before liftoff
 
-  const BOOST_MULT = 1.55;          // speed multiplier while boosting
-  const BOOST_TIME_PER_WATER = 2.6; // seconds of boost per water pickup
-  const BOOST_MAX_TIME = 6.5;       // cap total boost time
-  const BOOST_SCORE_MULT = 2.0;     // score multiplier while boosting
+  // Pace — locked warmup, then very gentle ramp
+  const BASE_SPEED    = 200;
+  const WARMUP_SPEED  = 200;
+  const WARMUP_TIME   = 12;        // seconds of locked speed at the start of every run
+  const MAX_SPEED     = 520;
+  const RAMP_PER_SEC  = 6;         // px/s gained per second after warmup
 
-  const GRACE_TIME = 2.2;           // seconds before first obstacles can spawn
-  // Pickups always hover above ground so they can never be mistaken for enemies.
-  const PICKUP_MIN_LIFT = 70;       // px above ground for a "low" pickup
-  const PICKUP_MAX_LIFT = 175;      // px above ground for a "high" pickup
+  // Boost
+  const BOOST_MULT       = 1.55;
+  const BOOST_TIME_PER   = 2.6;    // seconds added per water
+  const BOOST_MAX_TIME   = 6.5;    // cap
+  const BOOST_SCORE_MULT = 2.0;
 
-  // Score values
-  const SCORE_RESCUE = 100;
-  const SCORE_ORANGE = 25;
+  // Spawning
+  const GRACE_TIME = 2.4;          // seconds with no obstacles at run start
+  const OBSTACLE_GAP_MIN_EARLY = 520;
+  const OBSTACLE_GAP_MAX_EARLY = 820;
+  const OBSTACLE_GAP_MIN_LATE  = 360;
+  const OBSTACLE_GAP_MAX_LATE  = 600;
+  const PICKUP_GAP_MIN = 380;
+  const PICKUP_GAP_MAX = 700;
+  const PICKUP_LIFT_MIN = 80;
+  const PICKUP_LIFT_MAX = 150;
 
-  const HIGHSCORE_KEY = 'capyrizzlerush_best_v3';
-  const TUTORIAL_SEEN_KEY = 'capyrizzlerush_tutorial_seen_v3';
+  // Game over flow
+  const HIT_FREEZE   = 0.18;       // freeze frame on hit
+  const HIT_FLASH    = 0.10;       // white flash duration
+  const HIT_DELAY    = 0.55;       // delay before showing game-over overlay
 
-  // ───────────────────────────────────────────────────────────────────────
-  // State
-  // ───────────────────────────────────────────────────────────────────────
-  /** @type {'title'|'playing'|'gameover'} */
-  let mode = 'title';
+  const HIGHSCORE_KEY = 'capyrizzlerush_best_v5';
+  const TUTORIAL_KEY  = 'capyrizzlerush_tut_v5';
 
-  const input = { down: false, pressedAt: 0, released: true };
-
-  const truck = {
-    x: TRUCK_X,
-    y: GROUND_Y - TRUCK_H,
-    vy: 0,
-    onGround: true,
-    squash: 1,         // y-scale for squash & stretch
-    stretch: 1,        // x-scale
-    rot: 0,            // rotation while airborne
-    spin: 0,           // spin velocity
-  };
-
-  let speed = BASE_SPEED;
-  let distance = 0;          // total world distance traveled (px)
-  let score = 0;             // distance/10 = meters
-  let best = parseInt(localStorage.getItem(HIGHSCORE_KEY) || '0', 10) || 0;
-
-  let boostTime = 0;         // seconds of boost remaining
-  let boosting = false;
-  let runTime = 0;           // seconds since run started (grace + hints)
-  let rescuedCount = 0;      // capybaras rescued this run (stacked on truck)
-  let totalRescued = parseInt(localStorage.getItem('capyrizzlerush_total_rescued') || '0', 10) || 0;
-
-  // Tutorial state — fades hints out after the player has actually done each thing
-  const tutorialSeen = localStorage.getItem(TUTORIAL_SEEN_KEY) === '1';
-  let hintJumpAlpha   = tutorialSeen ? 0 : 1;
-  let hintWaterAlpha  = tutorialSeen ? 0 : 1;
-  let hintJumpDone    = tutorialSeen;
-  let hintWaterDone   = tutorialSeen;
-
-  let shakeT = 0;            // remaining seconds of shake
-  let shakeMag = 0;          // current magnitude
-
-  /** @type {Array<{x:number,y:number,w:number,h:number,kind:string,phase:number}>} */
-  const obstacles = [];
-  /** @type {Array<{x:number,y:number,w:number,h:number,kind:string,phase:number,taken?:boolean}>} */
-  const pickups = [];
-  /** @type {Array<{x:number,y:number,phase:number,kind:string,vx?:number,vy?:number}>} */
-  const npcs = [];           // background capybara NPCs (sidewalk, hot tub, rooftop, balloon, plane, ufo, cloud, koolaid)
-  /** @type {Array<{x:number,y:number,life:number,max:number}>} */
-  const telegraphs = [];     // incoming-obstacle alert chevrons on the right edge
-  /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,max:number,color:string,size:number,kind:string,grav?:number}>} */
-  const particles = [];
-  /** @type {Array<{x:number,y:number,life:number,max:number,text:string,color:string,vy:number}>} */
-  const popups = [];
-
-  let nextSpawnDist = 200;    // distance until next obstacle spawn
-  let nextPickupDist = 350;
-
-  // Parallax layers (offsets)
-  const bg = {
-    sky: 0,
-    far: 0,
-    mid: 0,
-    near: 0,
-    road: 0,
-  };
-
-  // ───────────────────────────────────────────────────────────────────────
-  // Helpers
-  // ───────────────────────────────────────────────────────────────────────
+  // ─── UTILITIES ────────────────────────────────────────────────────────
   const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
   const lerp  = (a, b, t) => a + (b - a) * t;
   const rand  = (lo, hi) => lo + Math.random() * (hi - lo);
-  const randi = (lo, hi) => Math.floor(rand(lo, hi + 1));
   const pick  = (arr) => arr[(Math.random() * arr.length) | 0];
-  // Positive modulo (JS % keeps the sign of the dividend, which breaks
-  // building heights at negative indices).
   const pmod  = (n, m) => ((n % m) + m) % m;
+  const aabb  = (ax, ay, aw, ah, bx, by, bw, bh) =>
+    ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 
-  function aabb(ax, ay, aw, ah, bx, by, bw, bh) {
-    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  function rrect(x, y, w, h, r) {
+    if (w <= 0 || h <= 0) { ctx.beginPath(); return; }
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function strokeShape(color, lw) {
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.stroke();
   }
 
-  function shake(mag, dur) {
-    shakeMag = Math.max(shakeMag, mag);
-    shakeT   = Math.max(shakeT, dur);
+  // ═════════════════════════════════════════════════════════════════════
+  //   SPRITE REGISTRY
+  //   ───────────────
+  //   Procedural-first. Register an Image to override the fallback later.
+  // ═════════════════════════════════════════════════════════════════════
+  const Sprite = {
+    images:    {},  // name -> HTMLImageElement (only set once loaded)
+    fallbacks: {},  // name -> function(x, y, w, h, opts)
+
+    registerFallback(name, fn) {
+      this.fallbacks[name] = fn;
+    },
+
+    // To use real art later:
+    //   Sprite.registerImage('truck', 'assets/truck.png');
+    registerImage(name, src) {
+      const img = new Image();
+      img.onload  = () => { this.images[name] = img; };
+      img.onerror = () => { /* keep using the procedural fallback */ };
+      img.src = src;
+    },
+
+    draw(name, x, y, w, h, opts) {
+      const img = this.images[name];
+      if (img) {
+        ctx.drawImage(img, x, y, w, h);
+        return;
+      }
+      const fn = this.fallbacks[name];
+      if (fn) fn(x, y, w, h, opts || {});
+    },
+  };
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   COSMETICS REGISTRY
+  //   ──────────────────
+  //   Anything purely decorative goes here. Game logic NEVER touches it.
+  //   This is where future capybara madness gets bolted on — billboards,
+  //   sky NPCs, building easter eggs — without any change to gameplay.
+  //
+  //   Layer order (back → front):
+  //     'sky'        — drifts independently
+  //     'farBg'      — behind the skyline
+  //     'skylineBg'  — behind the skyline silhouette
+  //     'skylineFg'  — in front of the skyline silhouette
+  //     'sidewalk'   — on the road's sidewalk strip
+  //
+  //   Each cosmetic spec:
+  //     {
+  //       layer: 'sky' | 'farBg' | 'skylineBg' | 'skylineFg' | 'sidewalk',
+  //       x, y,
+  //       vx?, vy?,                     // own velocity (sky usually); 0 means parallax-driven
+  //       parallax?: number,            // 0..1, fraction of worldSpeed applied
+  //       phase?: number,               // free animation phase
+  //       wrap?: number,                // wrap x by this width (for tile-like cosmetics)
+  //       respawnX?: number,            // when off-screen-left, respawn at this x
+  //       draw(c)                       // c = {x, y, phase, t}  ← only API surface
+  //     }
+  // ═════════════════════════════════════════════════════════════════════
+  const Cosmetics = {
+    items: [],
+
+    add(spec) {
+      spec.phase = spec.phase != null ? spec.phase : Math.random() * Math.PI * 2;
+      spec.vx    = spec.vx    || 0;
+      spec.vy    = spec.vy    || 0;
+      spec.parallax = spec.parallax || 0;
+      this.items.push(spec);
+      return spec;
+    },
+
+    clear() { this.items.length = 0; },
+
+    update(dt, worldSpeed) {
+      for (let i = this.items.length - 1; i >= 0; i--) {
+        const c = this.items[i];
+        c.phase += dt;
+        c.x += c.vx * dt - worldSpeed * dt * c.parallax;
+        c.y += c.vy * dt;
+        if (c.wrap) {
+          // tile-like: wrap around horizontally
+          if (c.x < -c.wrap) c.x += c.wrap * 2;
+        } else if (typeof c.respawnX === 'number') {
+          if (c.x < -200) c.x = c.respawnX;
+        } else if (c.x < -400) {
+          this.items.splice(i, 1);
+        }
+      }
+    },
+
+    draw(layer) {
+      for (const c of this.items) {
+        if (c.layer === layer) c.draw({ x: c.x, y: c.y, phase: c.phase });
+      }
+    },
+  };
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   AUDIO
+  //   Lightweight WebAudio synthesis. One-shots only.
+  // ═════════════════════════════════════════════════════════════════════
+  let ac = null;
+  function audio() {
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) ac = new AC();
+    }
+    return ac;
+  }
+  function blip(freq, dur, type, vol, slideTo, attack) {
+    const c = audio(); if (!c) return;
+    const t = c.currentTime;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo != null) o.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), t + dur);
+    const a = attack || 0.005;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+  function noise(dur, vol) {
+    const c = audio(); if (!c) return;
+    const t = c.currentTime;
+    const len = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = c.createBufferSource();
+    const g = c.createGain();
+    src.buffer = buf;
+    g.gain.value = vol;
+    src.connect(g); g.connect(c.destination);
+    src.start(t); src.stop(t + dur + 0.02);
+  }
+  const sfx = {
+    jump()   { blip(360, 0.18, 'square',   0.05, 760); },
+    land()   { noise(0.10, 0.05); blip(140, 0.08, 'sine', 0.05, 80); },
+    pickup() { blip(600, 0.08, 'triangle', 0.06, 980); blip(900, 0.10, 'triangle', 0.05, 1400); },
+    boost()  { blip(220, 0.30, 'sawtooth', 0.07, 880); blip(660, 0.18, 'square', 0.05, 1320); noise(0.20, 0.04); },
+    smash()  { blip(120, 0.18, 'sawtooth', 0.08,  60); noise(0.12, 0.08); blip(880, 0.06, 'square', 0.04, 220); },
+    crash()  { blip( 80, 0.50, 'sawtooth', 0.10,  40); noise(0.35, 0.12); },
+  };
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   GAME STATE
+  // ═════════════════════════════════════════════════════════════════════
+  /** @type {'title'|'playing'|'dying'|'gameover'} */
+  let mode = 'title';
+
+  const state = {
+    runTime: 0,
+    distance: 0,
+    score: 0,
+    best: parseInt(localStorage.getItem(HIGHSCORE_KEY) || '0', 10) || 0,
+    speed: BASE_SPEED,
+
+    boostTime: 0,
+    boosting: false,
+    boostUsed: 0,           // total boost time used this run
+
+    // run stats for the game-over screen
+    firesSmashed: 0,
+    watersGrabbed: 0,
+
+    // truck
+    truck: {
+      x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
+      onGround: true,
+      squash: 1, stretch: 1,           // y/x scale
+      crouchT: 0,                      // anticipation timer; while >0, queued jump pending
+      pendingJump: false,
+      bob: 0,                          // continuous road-bob phase
+      blinkT: rand(2, 4),              // seconds until next blink
+      blinking: 0,                     // remaining blink animation
+    },
+
+    // entities
+    obstacles: [],   // {x,y,w,h,kind:'fire',phase}
+    pickups: [],     // {x,y,w,h,kind:'water',phase,taken?}
+    particles: [],
+    popups: [],
+
+    // spawn timers
+    nextObstacleDist: 900,
+    nextPickupDist: 700,
+
+    // screen effects
+    shake: { mag: 0, time: 0 },
+    flashWhite: 0,
+    freezeT: 0,
+    deathT: 0,             // post-hit countdown before showing overlay
+    cameraBob: 0,
+
+    // tutorial
+    hint: {
+      jumpA: 0, waterA: 0,
+      jumpDone: false, waterDone: false,
+    },
+
+    // parallax offsets
+    bg: { sky: 0, farSkyline: 0, road: 0 },
+  };
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   INPUT
+  // ═════════════════════════════════════════════════════════════════════
+  function press(e) {
+    if (e && e.cancelable) e.preventDefault();
+    audio(); // unlock on first interaction
+
+    if (mode === 'title' || mode === 'gameover') {
+      const t = e && e.target;
+      if (!t || (t !== btnStart && t !== btnRetry)) startGame();
+      return;
+    }
+    if (mode === 'playing') queueJump();
+  }
+  canvas.addEventListener('pointerdown', press);
+  elTitle.addEventListener('pointerdown', press);
+  elGameOver.addEventListener('pointerdown', press);
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') press(e);
+  });
+  btnStart.addEventListener('click', () => startGame());
+  btnRetry.addEventListener('click', () => startGame());
+
+  function queueJump() {
+    const t = state.truck;
+    if (!t.onGround || t.crouchT > 0) return;
+    t.crouchT = CROUCH_TIME;
+    t.pendingJump = true;
+    t.squash = 0.62;
+    t.stretch = 1.18;
+  }
+  function actuallyJump() {
+    const t = state.truck;
+    t.vy = JUMP_V;
+    t.onGround = false;
+    t.squash = 0.72;
+    t.stretch = 1.30;
+    spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, 9, '#fff7e0');
+    sfx.jump();
+    if (!state.hint.jumpDone) state.hint.jumpDone = true;
   }
 
-  function popup(text, x, y, color) {
-    popups.push({ x, y, life: 0.9, max: 0.9, text, color: color || '#fff7e0', vy: -60 });
-  }
-
+  // ═════════════════════════════════════════════════════════════════════
+  //   LIFECYCLE
+  // ═════════════════════════════════════════════════════════════════════
   function setMode(m) {
     mode = m;
     elTitle.classList.toggle('hidden', m !== 'title');
     elGameOver.classList.toggle('hidden', m !== 'gameover');
-    elHud.classList.toggle('hidden', m !== 'playing');
+    elHud.classList.toggle('hidden', m === 'title');
   }
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Lifecycle
-  // ───────────────────────────────────────────────────────────────────────
   function resetRun() {
-    truck.x = TRUCK_X;
-    truck.y = GROUND_Y - TRUCK_H;
-    truck.vy = 0;
-    truck.onGround = true;
-    truck.squash = 1;
-    truck.stretch = 1;
-    truck.rot = 0;
-    truck.spin = 0;
+    const tutSeen = localStorage.getItem(TUTORIAL_KEY) === '1';
 
-    speed = BASE_SPEED;
-    distance = 0;
-    score = 0;
-    boostTime = 0;
-    boosting = false;
-    runTime = 0;
+    state.runTime = 0;
+    state.distance = 0;
+    state.score = 0;
+    state.speed = WARMUP_SPEED;
 
-    obstacles.length = 0;
-    pickups.length = 0;
-    particles.length = 0;
-    popups.length = 0;
-    npcs.length = 0;
-    telegraphs.length = 0;
-    rescuedCount = 0;
+    state.boostTime = 0;
+    state.boosting = false;
+    state.boostUsed = 0;
+    state.firesSmashed = 0;
+    state.watersGrabbed = 0;
 
-    // Initial spawn timing uses a grace period so the player isn't
-    // ambushed on frame 1. The first obstacle is also pushed further out.
-    nextSpawnDist = 900;
-    nextPickupDist = 520;
+    Object.assign(state.truck, {
+      x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
+      onGround: true, squash: 1, stretch: 1,
+      crouchT: 0, pendingJump: false, bob: 0,
+      blinkT: rand(2, 4), blinking: 0,
+    });
 
-    shakeT = 0;
-    shakeMag = 0;
+    state.obstacles.length = 0;
+    state.pickups.length = 0;
+    state.particles.length = 0;
+    state.popups.length = 0;
 
-    // Reset hint visibility only if the player hasn't completed the tutorial
-    if (!hintJumpDone)  hintJumpAlpha  = 1;
-    if (!hintWaterDone) hintWaterAlpha = 1;
+    state.nextObstacleDist = 900;
+    state.nextPickupDist   = 700;
+
+    state.shake.mag = 0; state.shake.time = 0;
+    state.flashWhite = 0;
+    state.freezeT = 0;
+    state.deathT = 0;
+    state.cameraBob = 0;
+
+    state.hint.jumpDone  = tutSeen;
+    state.hint.waterDone = tutSeen;
+    state.hint.jumpA     = tutSeen ? 0 : 1;
+    state.hint.waterA    = tutSeen ? 0 : 1;
   }
 
   function startGame() {
     resetRun();
-    // Seed all NPC layers immediately so the world feels alive on frame 1.
-    for (let i = 0; i < 2; i++) spawnNpc('sidewalk');
-    for (let i = 0; i < 2; i++) spawnNpc('hottub');
-    for (let i = 0; i < 2; i++) spawnNpc('rooftop');
-    spawnNpc('koolaid');
-    spawnNpc('balloon');
-    spawnNpc('plane');
-    spawnNpc('cloud');
-    spawnNpc('cloud');
-    // Distribute everyone across the screen instead of stacking at the right
-    npcs.forEach((n, i) => { n.x = (i + 0.5) * (W / npcs.length); });
     setMode('playing');
   }
 
-  function gameOver() {
-    if (score > best) {
-      best = score;
-      try { localStorage.setItem(HIGHSCORE_KEY, String(best)); } catch {}
+  function die(cause) {
+    state.freezeT  = HIT_FREEZE;
+    state.flashWhite = HIT_FLASH;
+    state.deathT    = HIT_DELAY;
+    state.shake.mag = Math.max(state.shake.mag, 18);
+    state.shake.time = Math.max(state.shake.time, 0.45);
+    // big particle burst
+    spawnCrash(state.truck.x + TRUCK_W * 0.5, state.truck.y + TRUCK_H * 0.4);
+    sfx.crash();
+    mode = 'dying'; // suspended state — entities frozen, particles continue
+  }
+
+  function finishDeath() {
+    // Tally + present results
+    const final = state.score;
+    let newBest = false;
+    if (final > state.best) {
+      state.best = final;
+      newBest = true;
+      try { localStorage.setItem(HIGHSCORE_KEY, String(state.best)); } catch {}
     }
-    elFinal.textContent = String(score);
-    elFinalBest.textContent = String(best);
-    shake(14, 0.5);
-    spawnCrashBurst(truck.x + TRUCK_W * 0.5, truck.y + TRUCK_H * 0.5);
+    elFinal.textContent      = String(final);
+    elFinalSmash.textContent = String(state.firesSmashed);
+    elFinalBest.textContent  = String(state.best);
+    elNewBest.classList.toggle('hidden', !newBest);
     setMode('gameover');
   }
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Input
-  // ───────────────────────────────────────────────────────────────────────
-  function pressDown(e) {
-    if (e && e.cancelable) e.preventDefault();
-    input.down = true;
-    input.released = false;
-    input.pressedAt = performance.now();
-
-    if (mode === 'title') {
-      // tap-anywhere to start (but the visible PLAY button works too)
-      // Only react if event is on canvas / stage, not on UI buttons
-      const t = e && e.target;
-      if (!t || (t !== btnStart && t !== btnRetry)) startGame();
-      return;
-    }
-    if (mode === 'gameover') {
-      const t = e && e.target;
-      if (!t || (t !== btnStart && t !== btnRetry)) startGame();
-      return;
-    }
-    if (mode === 'playing') {
-      tryJump();
-    }
-  }
-
-  function pressUp(e) {
-    if (e && e.cancelable) e.preventDefault();
-    input.down = false;
-    input.released = true;
-  }
-
-  function tryJump() {
-    if (truck.onGround) {
-      truck.vy = JUMP_V;
-      truck.onGround = false;
-      truck.squash = 0.7;
-      truck.stretch = 1.25;
-      truck.spin = -3.2;
-      spawnJumpPuff();
-      sfxJump();
-      if (!hintJumpDone) hintJumpDone = true;
-    }
-  }
-
-  function countNpc(kind) {
-    let n = 0;
-    for (const x of npcs) if (x.kind === kind) n++;
-    return n;
-  }
-
-  // Pointer/touch
-  canvas.addEventListener('pointerdown', pressDown);
-  window.addEventListener('pointerup', pressUp);
-  window.addEventListener('pointercancel', pressUp);
-  // overlay tap also starts
-  elTitle.addEventListener('pointerdown', pressDown);
-  elGameOver.addEventListener('pointerdown', pressDown);
-  // Keyboard
-  window.addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') pressDown(e);
-  });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') pressUp(e);
-  });
-  // Buttons
-  btnStart.addEventListener('click', () => startGame());
-  btnRetry.addEventListener('click', () => startGame());
-
-  // ───────────────────────────────────────────────────────────────────────
-  // Spawning
-  // ───────────────────────────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════
+  //   SPAWNING
+  // ═════════════════════════════════════════════════════════════════════
   function spawnObstacle() {
-    const kind = pick(['fire', 'fire', 'hydrant', 'cone', 'firepit']);
-    let w, h, y;
-    // Bigger silhouettes than v2 so they're more readable at any speed.
-    switch (kind) {
-      case 'fire':    w = 60; h = 88; y = GROUND_Y - h; break;
-      case 'hydrant': w = 56; h = 70; y = GROUND_Y - h; break;
-      case 'cone':    w = 54; h = 66; y = GROUND_Y - h; break;
-      case 'firepit': w = 140; h = 44; y = GROUND_Y - h; break;
-      default:        w = 50; h = 70; y = GROUND_Y - h;
-    }
-    obstacles.push({ x: W + 80, y, w, h, kind, phase: Math.random() * Math.PI * 2 });
-  }
-
-  function spawnPickup() {
-    // 55% water (boost), 30% orange (snack), 15% capybara rescue (jackpot)
-    const r = Math.random();
-    const kind = r < 0.55 ? 'water' : (r < 0.85 ? 'orange' : 'rescue');
-    let w, h, y;
-    if (kind === 'water') {
-      w = 44; h = 48;
-      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT, PICKUP_MIN_LIFT + 40);
-    } else if (kind === 'orange') {
-      w = 42; h = 42;
-      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT + 30, PICKUP_MAX_LIFT);
-    } else {
-      // Rescue capybara: always at a height that requires a jump but is
-      // very reachable, and visually obvious.
-      w = 52; h = 56;
-      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT + 10, PICKUP_MIN_LIFT + 60);
-    }
-    pickups.push({ x: W + 80, y, w, h, kind, phase: Math.random() * Math.PI * 2 });
-  }
-
-  function spawnNpc(kind) {
-    const n = { x: 0, y: 0, phase: Math.random() * Math.PI * 2, kind, vx: 0, vy: 0 };
-    switch (kind) {
-      case 'sidewalk':
-        n.x = W + rand(0, 200); n.y = 0; break;
-      case 'hottub':
-        n.x = W + rand(0, 200); n.y = 0; break;
-      case 'rooftop':
-        n.x = W + rand(0, 200); n.y = 0; break;
-      case 'koolaid':
-        // Big capybara head bursting from a building window — uses mid layer.
-        n.x = W + rand(80, 240); n.y = rand(120, 230); break;
-      case 'balloon':
-        n.x = W + 60; n.y = rand(40, 140); n.vx = -rand(12, 22); break;
-      case 'plane':
-        n.x = W + 80; n.y = rand(50, 120); n.vx = -rand(80, 110); break;
-      case 'ufo':
-        n.x = W + 80; n.y = rand(60, 160); n.vx = -rand(30, 50); break;
-      case 'cloud':
-        n.x = W + 100; n.y = rand(30, 100); n.vx = -rand(8, 16); break;
-    }
-    npcs.push(n);
-  }
-
-  function spawnTelegraph(y) {
-    telegraphs.push({ x: W - 6, y, life: 1.0, max: 1.0 });
-  }
-
-  // ───────────────────────────────────────────────────────────────────────
-  // Particles
-  // ───────────────────────────────────────────────────────────────────────
-  function spawnExhaust() {
-    if (Math.random() > 0.6) return;
-    particles.push({
-      x: truck.x + 8,
-      y: truck.y + TRUCK_H - 14,
-      vx: -rand(40, 90),
-      vy: -rand(20, 60),
-      life: 0.7, max: 0.7,
-      color: boosting ? '#ffd24a' : '#cdbfe6',
-      size: rand(6, 12),
-      kind: 'smoke',
-      grav: -40,
+    // Single kind in v5: fire. Sizes vary slightly for visual interest.
+    const big = Math.random() < 0.25;
+    const w = big ? 90 : 64;
+    const h = big ? 100 : 88;
+    state.obstacles.push({
+      x: W + 80,
+      y: GROUND_Y - h,
+      w, h,
+      kind: 'fire',
+      phase: Math.random() * Math.PI * 2,
     });
   }
-  function spawnJumpPuff() {
-    for (let i = 0; i < 7; i++) {
-      particles.push({
-        x: truck.x + 10 + rand(0, TRUCK_W - 20),
-        y: GROUND_Y - 2,
-        vx: rand(-120, 120),
-        vy: -rand(20, 90),
-        life: 0.5, max: 0.5,
-        color: '#fff7e0',
-        size: rand(4, 9),
-        kind: 'smoke',
-        grav: -20,
+  function spawnPickup() {
+    const w = 48, h = 52;
+    const y = GROUND_Y - h - rand(PICKUP_LIFT_MIN, PICKUP_LIFT_MAX);
+    state.pickups.push({
+      x: W + 80, y, w, h,
+      kind: 'water',
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   PARTICLES & POPUPS
+  // ═════════════════════════════════════════════════════════════════════
+  function spawnDust(x, y, n, color) {
+    for (let i = 0; i < n; i++) {
+      state.particles.push({
+        x: x + rand(-14, 14), y: y - 2,
+        vx: rand(-220, 220), vy: -rand(20, 110),
+        life: rand(0.35, 0.55), max: 0.55,
+        size: rand(4, 8), color, kind: 'dust', grav: -10,
       });
     }
   }
-  function spawnPickupBurst(x, y, color) {
-    for (let i = 0; i < 14; i++) {
+  function spawnSpark(x, y, n, palette) {
+    for (let i = 0; i < n; i++) {
       const a = rand(0, Math.PI * 2);
-      const s = rand(120, 260);
-      particles.push({
-        x, y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s,
-        life: 0.55, max: 0.55,
-        color,
-        size: rand(3, 6),
-        kind: 'spark',
-        grav: 600,
-      });
-    }
-  }
-  function spawnCrashBurst(x, y) {
-    for (let i = 0; i < 36; i++) {
-      const a = rand(-Math.PI, 0);
-      const s = rand(180, 540);
-      particles.push({
-        x, y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s,
-        life: rand(0.6, 1.0), max: 1.0,
-        color: pick(['#ff5a3c', '#ffb14c', '#fff7e0', '#1a0f3a']),
-        size: rand(4, 9),
-        kind: 'spark',
-        grav: 900,
+      const s = rand(180, 420);
+      state.particles.push({
+        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: rand(0.4, 0.7), max: 0.7,
+        size: rand(3, 6), color: pick(palette), kind: 'spark', grav: 700,
       });
     }
   }
   function spawnFireFlick(x, y) {
-    if (Math.random() > 0.35) return;
-    particles.push({
-      x: x + rand(-6, 6),
-      y: y + rand(-4, 4),
-      vx: rand(-20, 20),
-      vy: -rand(40, 90),
-      life: 0.45, max: 0.45,
-      color: Math.random() < 0.5 ? '#ffb14c' : '#ff5a3c',
-      size: rand(3, 6),
-      kind: 'flame',
-      grav: -120,
+    if (Math.random() > 0.45) return;
+    state.particles.push({
+      x: x + rand(-8, 8), y: y + rand(-4, 4),
+      vx: rand(-30, 30), vy: -rand(70, 130),
+      life: 0.5, max: 0.5,
+      size: rand(4, 7), color: Math.random() < 0.5 ? '#ffb14c' : '#ff5a3c',
+      kind: 'flame', grav: -100,
     });
   }
-
   function spawnBoostFlame() {
-    // fat flame trail behind the truck while boosting
     for (let n = 0; n < 2; n++) {
-      particles.push({
-        x: truck.x - rand(2, 18),
-        y: truck.y + rand(TRUCK_H * 0.45, TRUCK_H * 0.85),
-        vx: -rand(220, 360),
-        vy: rand(-30, 30),
-        life: 0.35, max: 0.35,
+      state.particles.push({
+        x: state.truck.x - rand(0, 24),
+        y: state.truck.y + rand(TRUCK_H * 0.45, TRUCK_H * 0.85),
+        vx: -rand(260, 420), vy: rand(-30, 30),
+        life: 0.34, max: 0.34,
+        size: rand(7, 13),
         color: Math.random() < 0.5 ? '#ffe24c' : '#ff5a3c',
-        size: rand(6, 12),
-        kind: 'flame',
-        grav: 0,
+        kind: 'flame', grav: 0,
       });
     }
   }
-
-  function spawnSmashBurst(x, y, kind) {
-    const palette = kind === 'fire' || kind === 'firepit'
-      ? ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']
-      : kind === 'hydrant'
-        ? ['#a8e6ff', '#4ec5ff', '#fff7e0', '#cfd6e6']
-        : ['#ffb14c', '#fff7e0', '#1a0f3a', '#ffe24c'];
-    for (let i = 0; i < 26; i++) {
-      const a = rand(-Math.PI, Math.PI);
-      const s = rand(220, 520);
-      particles.push({
-        x, y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s - 60,
-        life: rand(0.45, 0.8), max: 0.8,
-        color: pick(palette),
-        size: rand(3, 8),
-        kind: 'spark',
-        grav: 700,
+  function spawnCrash(x, y) {
+    spawnSpark(x, y, 32, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0', '#1a0f3a']);
+    for (let i = 0; i < 12; i++) {
+      state.particles.push({
+        x: x + rand(-10, 10), y: y - 6,
+        vx: rand(-160, 160), vy: -rand(120, 260),
+        life: rand(0.6, 1.0), max: 1.0,
+        size: rand(8, 14), color: pick(['#1a0f3a', '#5a607a']),
+        kind: 'dust', grav: 600,
       });
     }
   }
+  function popup(text, x, y, color) {
+    state.popups.push({ x, y, text, color: color || '#fff7e0', life: 0.95, max: 0.95, vy: -56 });
+  }
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Update
-  // ───────────────────────────────────────────────────────────────────────
+  function shake(mag, dur) {
+    state.shake.mag  = Math.max(state.shake.mag, mag);
+    state.shake.time = Math.max(state.shake.time, dur);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   UPDATE
+  // ═════════════════════════════════════════════════════════════════════
   function update(dt) {
-    if (mode !== 'playing') {
-      // Still animate background subtly on menus
-      bg.sky += dt * 4;
-      // Update particles so the crash burst plays out on game-over
-      updateParticles(dt);
-      updateShake(dt);
+    // Always-on background drift
+    state.bg.sky += dt * 4;
+
+    // Particles + popups always tick (so the crash burst plays out on death)
+    updateParticles(dt);
+
+    // Screen shake decays always
+    if (state.shake.time > 0) {
+      state.shake.time -= dt;
+      state.shake.mag *= 0.9;
+      if (state.shake.time <= 0) state.shake.mag = 0;
+    }
+    if (state.flashWhite > 0) state.flashWhite = Math.max(0, state.flashWhite - dt);
+
+    if (mode === 'title') return;
+
+    // Hit freeze frame
+    if (state.freezeT > 0) { state.freezeT -= dt; return; }
+
+    if (mode === 'dying') {
+      state.deathT -= dt;
+      // continue scrolling cosmetic stuff a bit so it doesn't snap
+      Cosmetics.update(dt, state.speed * 0.5);
+      state.bg.farSkyline += state.speed * dt * 0.06;
+      state.bg.road       += state.speed * dt * 0.6;
+      if (state.deathT <= 0) finishDeath();
       return;
     }
 
-    runTime += dt;
+    if (mode !== 'playing') return;
 
-    // ── Speed ramps with distance/time
-    speed = Math.min(MAX_SPEED, speed + SPEED_RAMP * dt * 60);
+    state.runTime += dt;
 
-    // ── Boost handling: auto-activates whenever boostTime > 0
-    boosting = boostTime > 0;
-    if (boosting) {
-      boostTime = Math.max(0, boostTime - dt);
-      // continuous boost flame trail
+    // Pace: locked warmup, then gentle ramp
+    if (state.runTime > WARMUP_TIME) {
+      state.speed = Math.min(MAX_SPEED, WARMUP_SPEED + RAMP_PER_SEC * (state.runTime - WARMUP_TIME));
+    }
+
+    // Boost handling
+    state.boosting = state.boostTime > 0;
+    if (state.boosting) {
+      state.boostTime = Math.max(0, state.boostTime - dt);
+      state.boostUsed += dt;
       spawnBoostFlame();
     }
-    const worldSpeed = boosting ? speed * BOOST_MULT : speed;
+    const worldSpeed = state.boosting ? state.speed * BOOST_MULT : state.speed;
+    const scoreMul   = state.boosting ? BOOST_SCORE_MULT : 1;
 
-    const scoreMult = boosting ? BOOST_SCORE_MULT : 1;
-    distance += worldSpeed * dt * scoreMult;
-    score = Math.floor(distance / 10);
+    state.distance += worldSpeed * dt * scoreMul;
+    state.score = Math.floor(state.distance / 10);
 
-    // ── Truck physics
-    if (!truck.onGround) {
-      truck.vy += GRAVITY * dt;
-      truck.y += truck.vy * dt;
-      truck.rot += truck.spin * dt;
-
-      if (truck.y >= GROUND_Y - TRUCK_H) {
-        truck.y = GROUND_Y - TRUCK_H;
-        truck.vy = 0;
-        truck.onGround = true;
-        truck.squash = 0.6;
-        truck.stretch = 1.3;
-        truck.rot = 0;
-        truck.spin = 0;
-        // landing dust
-        for (let i = 0; i < 8; i++) {
-          particles.push({
-            x: truck.x + 10 + rand(0, TRUCK_W - 20),
-            y: GROUND_Y - 2,
-            vx: rand(-160, 160),
-            vy: -rand(10, 70),
-            life: 0.45, max: 0.45,
-            color: '#e9dbb8',
-            size: rand(3, 7),
-            kind: 'smoke',
-            grav: -10,
-          });
-        }
-        shake(3, 0.08);
+    // ── Truck physics ────────────────────────────────────────────────
+    const t = state.truck;
+    if (t.crouchT > 0) {
+      t.crouchT -= dt;
+      if (t.crouchT <= 0 && t.pendingJump) {
+        t.pendingJump = false;
+        actuallyJump();
       }
     }
-    // ease squash/stretch back to 1
-    truck.squash = lerp(truck.squash, 1, Math.min(1, dt * 10));
-    truck.stretch = lerp(truck.stretch, 1, Math.min(1, dt * 10));
+    if (!t.onGround) {
+      // gravity (with hang-time near the apex)
+      const grav = Math.abs(t.vy) < APEX_BAND ? GRAVITY * APEX_GRAV_MUL : GRAVITY;
+      t.vy += grav * dt;
+      t.y  += t.vy * dt;
+      // stretch toward rising / squash toward falling slightly
+      t.stretch = lerp(t.stretch, t.vy < 0 ? 1.18 : 1.0,  Math.min(1, dt * 6));
+      t.squash  = lerp(t.squash,  t.vy < 0 ? 0.86 : 1.05, Math.min(1, dt * 6));
+      if (t.y >= GROUND_Y - TRUCK_H) {
+        t.y = GROUND_Y - TRUCK_H;
+        t.vy = 0;
+        t.onGround = true;
+        t.squash = 0.64; t.stretch = 1.36;
+        spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, 12, '#e9dbb8');
+        shake(4, 0.10);
+        sfx.land();
+      }
+    } else {
+      t.bob += dt * 8;
+      t.squash  = lerp(t.squash,  1, Math.min(1, dt * 10));
+      t.stretch = lerp(t.stretch, 1, Math.min(1, dt * 10));
+    }
+    // blink timer
+    t.blinkT -= dt;
+    if (t.blinkT <= 0) {
+      t.blinking = 0.14;
+      t.blinkT = rand(2.5, 5.5);
+    }
+    if (t.blinking > 0) t.blinking -= dt;
 
-    // ── Spawning (suppressed during the start-of-run grace period)
-    if (runTime > GRACE_TIME) {
-      nextSpawnDist  -= worldSpeed * dt;
-      nextPickupDist -= worldSpeed * dt;
-      if (nextSpawnDist <= 0) {
+    // ── Spawn timers (after grace) ───────────────────────────────────
+    if (state.runTime > GRACE_TIME) {
+      state.nextObstacleDist -= worldSpeed * dt;
+      state.nextPickupDist   -= worldSpeed * dt;
+
+      if (state.nextObstacleDist <= 0) {
         spawnObstacle();
-        // visual telegraph at the spawn y so the player gets a moment of warning
-        const last = obstacles[obstacles.length - 1];
-        if (last) spawnTelegraph(last.y + last.h * 0.5);
-        // gap shrinks with speed, but stays generous
-        const t = (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
-        const minGap = lerp(480, 320, t);
-        const maxGap = lerp(760, 520, t);
-        nextSpawnDist = rand(minGap, maxGap);
+        const t01 = clamp((state.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED), 0, 1);
+        const minGap = lerp(OBSTACLE_GAP_MIN_EARLY, OBSTACLE_GAP_MIN_LATE, t01);
+        const maxGap = lerp(OBSTACLE_GAP_MAX_EARLY, OBSTACLE_GAP_MAX_LATE, t01);
+        state.nextObstacleDist = rand(minGap, maxGap);
       }
-      if (nextPickupDist <= 0) {
+      if (state.nextPickupDist <= 0) {
         spawnPickup();
-        nextPickupDist = rand(360, 700);
+        state.nextPickupDist = rand(PICKUP_GAP_MIN, PICKUP_GAP_MAX);
       }
     }
 
-    // ── Move obstacles & collide
-    for (let i = obstacles.length - 1; i >= 0; i--) {
-      const o = obstacles[i];
+    // ── Move + collide obstacles ─────────────────────────────────────
+    for (let i = state.obstacles.length - 1; i >= 0; i--) {
+      const o = state.obstacles[i];
       o.x -= worldSpeed * dt;
       o.phase += dt * 6;
-      // flame flicks for fire-y obstacles
-      if (o.kind === 'fire' || o.kind === 'firepit') {
-        spawnFireFlick(o.x + o.w * 0.5, o.y + 6);
-      }
-      // collision (slightly forgiving hitbox)
+      spawnFireFlick(o.x + o.w * 0.5, o.y + 8);
       const hb = truckHitbox();
-      const pad = 4;
+      const pad = 6;
       const hit = aabb(
         hb.x + pad, hb.y + pad, hb.w - pad * 2, hb.h - pad * 2,
-        o.x + 6, o.y + 6, o.w - 12, o.h - 12,
+        o.x + 10, o.y + 10, o.w - 20, o.h - 20,
       );
       if (hit) {
-        if (boosting) {
-          // smash through it
-          spawnSmashBurst(o.x + o.w / 2, o.y + o.h / 2, o.kind);
-          popup('+SMASH', o.x + o.w / 2, o.y - 4, '#ffe24c');
-          score += 25;
-          distance += 250;
+        if (state.boosting) {
+          state.firesSmashed += 1;
+          state.score    += 25;
+          state.distance += 250;
+          spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 24, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']);
+          popup('SMASH +25', o.x + o.w / 2, o.y - 4, '#ffe24c');
           shake(8, 0.18);
-          sfxSmash();
-          obstacles.splice(i, 1);
+          sfx.smash();
+          state.obstacles.splice(i, 1);
           continue;
         } else {
-          gameOver();
+          die('fire');
           return;
         }
       }
-      if (o.x + o.w < -40) obstacles.splice(i, 1);
+      if (o.x + o.w < -60) state.obstacles.splice(i, 1);
     }
 
-    // ── Pickups
-    for (let i = pickups.length - 1; i >= 0; i--) {
-      const p = pickups[i];
+    // ── Move + collect pickups ───────────────────────────────────────
+    for (let i = state.pickups.length - 1; i >= 0; i--) {
+      const p = state.pickups[i];
       p.x -= worldSpeed * dt;
       p.phase += dt * 5;
       const hb = truckHitbox();
       if (!p.taken && aabb(hb.x, hb.y, hb.w, hb.h, p.x, p.y, p.w, p.h)) {
         p.taken = true;
-        const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
-        if (p.kind === 'water') {
-          const wasBoosting = boostTime > 0;
-          boostTime = Math.min(BOOST_MAX_TIME, boostTime + BOOST_TIME_PER_WATER);
-          spawnPickupBurst(cx, cy, '#4ec5ff');
-          popup(wasBoosting ? '+SIREN' : 'SIREN ON', cx, p.y, '#4ec5ff');
-          sfxPickup(660);
-          if (!wasBoosting) shake(5, 0.14);
-          if (!hintWaterDone) {
-            hintWaterDone = true;
-            try { localStorage.setItem(TUTORIAL_SEEN_KEY, '1'); } catch {}
-          }
-        } else if (p.kind === 'orange') {
-          score += SCORE_ORANGE;
-          distance += SCORE_ORANGE * 10;
-          spawnPickupBurst(cx, cy, '#ffb14c');
-          popup('+' + SCORE_ORANGE, cx, p.y, '#ffe24c');
-          sfxPickup(880);
-        } else if (p.kind === 'rescue') {
-          rescuedCount += 1;
-          totalRescued += 1;
-          try { localStorage.setItem('capyrizzlerush_total_rescued', String(totalRescued)); } catch {}
-          score += SCORE_RESCUE;
-          distance += SCORE_RESCUE * 10;
-          spawnPickupBurst(cx, cy, '#fff7e0');
-          spawnPickupBurst(cx, cy, '#ffd24a');
-          popup('RESCUED +' + SCORE_RESCUE, cx, p.y, '#ffd24a');
-          shake(6, 0.18);
-          sfxPickup(540);
-          sfxPickup(720);
+        state.watersGrabbed += 1;
+        const wasBoosting = state.boostTime > 0;
+        state.boostTime = Math.min(BOOST_MAX_TIME, state.boostTime + BOOST_TIME_PER);
+        spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 14, ['#4ec5ff', '#a8e6ff', '#fff7e0']);
+        popup(wasBoosting ? '+SIREN' : 'SIREN!', p.x + p.w / 2, p.y, '#a8e6ff');
+        state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.10);
+        shake(wasBoosting ? 3 : 6, 0.14);
+        sfx.pickup();
+        if (!wasBoosting) sfx.boost();
+        if (!state.hint.waterDone) {
+          state.hint.waterDone = true;
+          try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch {}
         }
       }
-      if (p.taken || p.x + p.w < -40) pickups.splice(i, 1);
+      if (p.taken || p.x + p.w < -60) state.pickups.splice(i, 1);
     }
 
-    // ── Background NPCs: each kind moves at its own pace
-    for (let i = npcs.length - 1; i >= 0; i--) {
-      const n = npcs[i];
-      let dx = 0, dy = 0;
-      switch (n.kind) {
-        case 'sidewalk': dx = -worldSpeed * dt * 0.45; break;
-        case 'hottub':   dx = -worldSpeed * dt * 0.18; break;
-        case 'rooftop':  dx = -worldSpeed * dt * 0.18; break;
-        case 'koolaid':  dx = -worldSpeed * dt * 0.18; break;
-        // Sky NPCs drift independently of world speed for a dreamier feel
-        case 'balloon':  dx = (n.vx || -16) * dt; dy = Math.sin(n.phase * 0.6) * 6 * dt; break;
-        case 'plane':    dx = (n.vx || -95) * dt; break;
-        case 'ufo':      dx = (n.vx || -40) * dt; dy = Math.sin(n.phase * 1.4) * 14 * dt; break;
-        case 'cloud':    dx = (n.vx || -12) * dt; break;
-      }
-      n.x += dx; n.y += dy;
-      n.phase += dt * 4;
-      // wider cull margin for plane (long banner) and koolaid (large head)
-      const cull = n.kind === 'plane' ? 320 : n.kind === 'koolaid' ? 200 : 140;
-      if (n.x < -cull) npcs.splice(i, 1);
-    }
-    // Continuously top up NPC populations so the world is never empty.
-    // Ground / mid layer:
-    if (countNpc('sidewalk') < 2 && Math.random() < dt * 0.6) spawnNpc('sidewalk');
-    if (countNpc('hottub')   < 2 && Math.random() < dt * 0.4) spawnNpc('hottub');
-    if (countNpc('rooftop')  < 2 && Math.random() < dt * 0.3) spawnNpc('rooftop');
-    if (countNpc('koolaid')  < 1 && Math.random() < dt * 0.08) spawnNpc('koolaid');
-    // Sky layer (rarer, the silly memey ones):
-    if (countNpc('balloon')  < 1 && Math.random() < dt * 0.18) spawnNpc('balloon');
-    if (countNpc('plane')    < 1 && Math.random() < dt * 0.12) spawnNpc('plane');
-    if (countNpc('ufo')      < 1 && Math.random() < dt * 0.08) spawnNpc('ufo');
-    if (countNpc('cloud')    < 2 && Math.random() < dt * 0.25) spawnNpc('cloud');
+    // ── Cosmetics drift ──────────────────────────────────────────────
+    Cosmetics.update(dt, worldSpeed);
 
-    // ── Telegraphs (incoming-obstacle alerts on the right edge)
-    for (let i = telegraphs.length - 1; i >= 0; i--) {
-      const t = telegraphs[i];
-      t.life -= dt;
-      if (t.life <= 0) telegraphs.splice(i, 1);
-    }
+    // ── Parallax ─────────────────────────────────────────────────────
+    state.bg.farSkyline += worldSpeed * dt * 0.06;
+    state.bg.road       += worldSpeed * dt;
 
-    // ── Tutorial hint fades
-    if (hintJumpDone)  hintJumpAlpha  = Math.max(0, hintJumpAlpha  - dt * 1.5);
-    if (hintWaterDone) hintWaterAlpha = Math.max(0, hintWaterAlpha - dt * 1.5);
+    // ── Camera bob — subtle truck-ride feel ──────────────────────────
+    state.cameraBob = Math.sin(state.runTime * 6) * 1.4;
 
-    // ── Exhaust
-    spawnExhaust();
+    // ── Tutorial hint fade ───────────────────────────────────────────
+    if (state.hint.jumpDone)  state.hint.jumpA  = Math.max(0, state.hint.jumpA  - dt * 1.4);
+    if (state.hint.waterDone) state.hint.waterA = Math.max(0, state.hint.waterA - dt * 1.4);
 
-    // ── Background parallax
-    bg.sky  += dt * 4;
-    bg.far  += worldSpeed * dt * 0.05;
-    bg.mid  += worldSpeed * dt * 0.18;
-    bg.near += worldSpeed * dt * 0.45;
-    bg.road += worldSpeed * dt;
-
-    // ── Particles & shake
-    updateParticles(dt);
-    updateShake(dt);
-
-    // ── HUD
-    elScore.textContent = score + ' m';
-    elBest.textContent  = 'BEST ' + best + ' m';
-    elBoost.style.width = clamp((boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%';
+    // ── HUD ──────────────────────────────────────────────────────────
+    elScore.textContent = state.score + ' m';
+    elBest.textContent  = 'BEST ' + state.best + ' m';
+    elBoost.style.width = clamp((state.boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%';
+    elBoostLabel.textContent = state.boosting ? 'SIREN!' : 'SIREN';
   }
 
   function updateParticles(dt) {
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
+    for (let i = state.particles.length - 1; i >= 0; i--) {
+      const p = state.particles[i];
       p.life -= dt;
-      if (p.life <= 0) { particles.splice(i, 1); continue; }
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      if (p.life <= 0) { state.particles.splice(i, 1); continue; }
+      p.x += p.vx * dt; p.y += p.vy * dt;
       if (p.grav) p.vy += p.grav * dt;
-      if (p.kind === 'smoke') {
-        p.size += dt * 12;
-        p.vx *= (1 - dt * 1.4);
+      if (p.kind === 'dust') {
+        p.size += dt * 14;
+        p.vx *= (1 - dt * 1.6);
       }
     }
-    for (let i = popups.length - 1; i >= 0; i--) {
-      const p = popups[i];
+    for (let i = state.popups.length - 1; i >= 0; i--) {
+      const p = state.popups[i];
       p.life -= dt;
       p.y += p.vy * dt;
-      p.vy *= (1 - dt * 0.8);
-      if (p.life <= 0) popups.splice(i, 1);
-    }
-  }
-
-  function updateShake(dt) {
-    if (shakeT > 0) {
-      shakeT -= dt;
-      shakeMag *= 0.9;
-      if (shakeT <= 0) shakeMag = 0;
+      p.vy *= (1 - dt * 0.9);
+      if (p.life <= 0) state.popups.splice(i, 1);
     }
   }
 
   function truckHitbox() {
-    return { x: truck.x + 8, y: truck.y + 8, w: TRUCK_W - 16, h: TRUCK_H - 12 };
+    // Slightly tighter than the visible truck for forgiving collision.
+    return {
+      x: state.truck.x + 14,
+      y: state.truck.y + 14,
+      w: TRUCK_W - 28,
+      h: TRUCK_H - 18,
+    };
   }
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Render
-  // ───────────────────────────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════
+  //   RENDER
+  // ═════════════════════════════════════════════════════════════════════
   function render() {
-    // shake offset
-    const sx = (Math.random() - 0.5) * shakeMag;
-    const sy = (Math.random() - 0.5) * shakeMag;
-
     ctx.save();
+
+    // Camera transform: shake + subtle truck-ride bob
+    const sx = (Math.random() - 0.5) * state.shake.mag;
+    const sy = (Math.random() - 0.5) * state.shake.mag + state.cameraBob;
     ctx.translate(sx, sy);
 
     drawSky();
-    drawSkyNpcs();         // balloon, plane, ufo, cloud — silly memey stuff
-    drawFarBuildings();
-    drawRooftopNpcs();     // capybara squads on building tops
-    drawMidBuildings();
-    drawKoolaidNpcs();     // giant capybara head bursting out a window
-    drawHotTubNpcs();
-    drawNearProps();
-    drawSidewalkNpcs();
+    Cosmetics.draw('sky');
+
+    drawFarSkyline();
+    Cosmetics.draw('farBg');
+    Cosmetics.draw('skylineBg');
+    drawSkylineFg();
+    Cosmetics.draw('skylineFg');
+
     drawRoad();
-    drawDangerLane();      // subtle tint that makes ground obstacles pop
+    Cosmetics.draw('sidewalk');
+    drawDangerVignette();
+
     drawPickups();
     drawObstacles();
-    drawTelegraphs();      // incoming-obstacle alerts on the right edge
     drawTruck();
+
     drawParticles();
     drawPopups();
+    drawBoostOverlay();
     drawHints();
 
-    // intensity vignette when boosting
-    if (boosting) {
+    ctx.restore();
+
+    // White-flash overlay
+    if (state.flashWhite > 0) {
       ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      const grd = ctx.createRadialGradient(W*0.5, H*0.5, H*0.25, W*0.5, H*0.5, H*0.85);
-      grd.addColorStop(0, 'rgba(255,210,80,0)');
-      grd.addColorStop(1, 'rgba(255,90,60,0.35)');
-      ctx.fillStyle = grd;
+      ctx.globalAlpha = clamp(state.flashWhite / HIT_FLASH, 0, 1) * 0.8;
+      ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
-
-    ctx.restore();
   }
 
+  // ─── Background ───────────────────────────────────────────────────────
   function drawSky() {
-    // base gradient: deep purple to hot ember at the bottom (matches Rizzle pfp vibes)
-    const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    sky.addColorStop(0,    '#1b0f4a');
-    sky.addColorStop(0.55, '#3a1d77');
-    sky.addColorStop(0.9,  '#8a3a8c');
-    sky.addColorStop(1,    '#ff8a3c');
-    ctx.fillStyle = sky;
+    const g = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    g.addColorStop(0,    '#1b0f4a');
+    g.addColorStop(0.55, '#3a1d77');
+    g.addColorStop(0.9,  '#8a3a8c');
+    g.addColorStop(1,    '#ff8a3c');
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, GROUND_Y);
 
-    // soft "flame lick" pattern à la pfp background
+    // sun disc
     ctx.save();
-    ctx.globalAlpha = 0.18;
-    ctx.fillStyle = '#8c6bff';
-    const t = bg.sky;
-    for (let i = 0; i < 7; i++) {
-      const cx = ((i * 160 - (t * 6) % 160) + W) % (W + 160) - 80;
-      const cy = 80 + (i % 3) * 60;
-      flame(cx, cy, 80 + (i % 2) * 30);
-    }
-    ctx.restore();
-
-    // distant sun/moon disc
-    ctx.save();
-    ctx.fillStyle = 'rgba(255, 220, 120, 0.85)';
-    ctx.beginPath(); ctx.arc(W * 0.78, 120, 38, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255, 220, 120, 0.95)';
+    ctx.beginPath(); ctx.arc(W * 0.74, 130, 44, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 0.25;
-    ctx.beginPath(); ctx.arc(W * 0.78, 120, 70, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(W * 0.74, 130, 86, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
-  function flame(x, y, s) {
-    ctx.beginPath();
-    ctx.moveTo(x, y + s * 0.4);
-    ctx.bezierCurveTo(x - s * 0.6, y + s * 0.2,  x - s * 0.4, y - s * 0.6, x, y - s);
-    ctx.bezierCurveTo(x + s * 0.4, y - s * 0.6,  x + s * 0.6, y + s * 0.2, x, y + s * 0.4);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  function drawFarBuildings() {
+  // Painted-style chunky silhouette far behind, very slow parallax.
+  function drawFarSkyline() {
+    const baseY = GROUND_Y - 12;
+    const offset = -pmod(state.bg.farSkyline, 320);
     ctx.save();
-    ctx.fillStyle = '#2a1b6b';
-    const baseY = GROUND_Y - 10;
-    const offset = -pmod(bg.far, 220);
-    for (let i = -1; i < 7; i++) {
-      const x = offset + i * 220;
-      const h = 90 + pmod(i * 53, 60);
-      rrect(x, baseY - h, 180, h, 6);
+    ctx.fillStyle = '#2a1a5a';
+    for (let i = -1; i < 5; i++) {
+      const x = offset + i * 320;
+      // group of 3 buildings with rounded silhouette
+      rrect(x,        baseY - 130, 110, 130, 10); ctx.fill();
+      rrect(x + 110,  baseY - 170, 110, 170, 12); ctx.fill();
+      rrect(x + 220,  baseY - 110, 100, 110, 8);  ctx.fill();
+      // a domed roof on the tall one
+      ctx.beginPath();
+      ctx.arc(x + 165, baseY - 170, 40, Math.PI, 0);
       ctx.fill();
-      // windows
-      ctx.fillStyle = 'rgba(255, 200, 90, 0.35)';
-      for (let wy = baseY - h + 14; wy < baseY - 12; wy += 18) {
-        for (let wx = x + 14; wx < x + 168; wx += 22) {
-          if (((wx + wy) | 0) % 3 === 0) ctx.fillRect(wx, wy, 8, 8);
+    }
+    // a few warm window glows
+    ctx.fillStyle = 'rgba(255, 200, 100, 0.55)';
+    for (let i = -1; i < 5; i++) {
+      const x = offset + i * 320;
+      for (let wy = baseY - 150; wy < baseY - 30; wy += 24) {
+        for (let wx = x + 18; wx < x + 300; wx += 28) {
+          if (((wx + wy * 2) | 0) % 5 === 0) ctx.fillRect(wx, wy, 8, 10);
         }
       }
-      ctx.fillStyle = '#2a1b6b';
     }
     ctx.restore();
   }
 
-  function drawMidBuildings() {
+  // Closer silhouette in front of the painted skyline. Used for chunky
+  // foreground city shapes WITHOUT competing with gameplay (sits above road).
+  function drawSkylineFg() {
     ctx.save();
-    ctx.fillStyle = '#1a0f3a';
     const baseY = GROUND_Y - 2;
-    const offset = -pmod(bg.mid, 180);
-    for (let i = -1; i < 8; i++) {
-      const x = offset + i * 180;
-      const h = 60 + pmod(i * 71, 80);
-      // building
-      rrect(x, baseY - h, 140, h, 4); ctx.fill();
-      // roof flag (red — fire dept vibe)
-      ctx.fillStyle = '#ff5a3c';
-      ctx.fillRect(x + 60, baseY - h - 16, 4, 16);
-      ctx.beginPath();
-      ctx.moveTo(x + 64, baseY - h - 16);
-      ctx.lineTo(x + 86, baseY - h - 12);
-      ctx.lineTo(x + 64, baseY - h - 8);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#1a0f3a';
-    }
-    ctx.restore();
-  }
-
-  function drawNearProps() {
-    // bushes / hydrant silhouettes along the sidewalk
-    ctx.save();
-    const baseY = GROUND_Y;
-    const offset = -pmod(bg.near, 260);
-    for (let i = -1; i < 6; i++) {
-      const x = offset + i * 260;
-      ctx.fillStyle = '#0e0828';
-      ctx.beginPath();
-      ctx.ellipse(x + 30, baseY - 6, 36, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(x + 70, baseY - 4, 28, 10, 0, 0, Math.PI * 2);
-      ctx.fill();
+    ctx.fillStyle = '#150827';
+    // simple chunky cluster, very slow parallax (almost still)
+    const offset = -pmod(state.bg.farSkyline * 0.5, 480);
+    for (let i = -1; i < 4; i++) {
+      const x = offset + i * 480;
+      rrect(x,         baseY - 70, 170, 70, 10); ctx.fill();
+      rrect(x + 180,   baseY - 90, 130, 90, 12); ctx.fill();
+      rrect(x + 320,   baseY - 60, 150, 60, 10); ctx.fill();
     }
     ctx.restore();
   }
 
   function drawRoad() {
-    // sidewalk strip
+    // Sidewalk strip
     ctx.fillStyle = '#3b2a7a';
     ctx.fillRect(0, GROUND_Y, W, 10);
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(0, GROUND_Y + 8, W, 3);
     // road
     ctx.fillStyle = '#0a0623';
-    ctx.fillRect(0, GROUND_Y + 10, W, H - (GROUND_Y + 10));
-    // road edge highlight
-    ctx.fillStyle = '#1a0f3a';
-    ctx.fillRect(0, GROUND_Y + 10, W, 4);
-    // dashed lane lines moving with road speed
+    ctx.fillRect(0, GROUND_Y + 11, W, H - GROUND_Y - 11);
+    // dashed lane line
     ctx.fillStyle = '#fff7e0';
-    const dashW = 60, gap = 40;
+    const dashW = 64, gap = 44;
     const period = dashW + gap;
-    const offset = -pmod(bg.road, period);
+    const offset = -pmod(state.bg.road, period);
     const laneY = GROUND_Y + (H - GROUND_Y) * 0.55;
     for (let x = offset - period; x < W + period; x += period) {
-      ctx.fillRect(x, laneY, dashW, 6);
+      ctx.fillRect(x, laneY, dashW, 7);
     }
-    // ground shadow under truck area
+    // soft ground shadow under the truck
     ctx.save();
-    ctx.globalAlpha = 0.25;
+    ctx.globalAlpha = 0.32;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(truck.x + TRUCK_W * 0.5, GROUND_Y + 6, TRUCK_W * 0.55, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(state.truck.x + TRUCK_W * 0.5, GROUND_Y + 6, TRUCK_W * 0.55, 7, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
+  // Dark vignette above the road so ground obstacles always pop visually.
+  function drawDangerVignette() {
+    ctx.save();
+    const g = ctx.createLinearGradient(0, GROUND_Y - 80, 0, GROUND_Y);
+    g.addColorStop(0, 'rgba(10, 6, 35, 0)');
+    g.addColorStop(1, 'rgba(10, 6, 35, 0.5)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, GROUND_Y - 80, W, 80);
+    ctx.restore();
+  }
+
+  // ─── Obstacles & pickups ──────────────────────────────────────────────
   function drawObstacles() {
-    for (const o of obstacles) {
-      switch (o.kind) {
-        case 'fire':    drawFire(o); break;
-        case 'firepit': drawFirePit(o); break;
-        case 'hydrant': drawHydrant(o); break;
-        case 'cone':    drawCone(o); break;
-      }
+    for (const o of state.obstacles) {
+      Sprite.draw('fire', o.x, o.y, o.w, o.h, { phase: o.phase });
     }
   }
-  function drawFire(o) {
-    const x = o.x, y = o.y, w = o.w, h = o.h;
-    const wob = Math.sin(o.phase) * 3;
-    ctx.save();
-    // dark base shadow on the road for extra contrast
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.ellipse(x + w/2, y + h + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // outer flame
-    ctx.fillStyle = '#ff5a3c';
-    ctx.beginPath();
-    ctx.moveTo(x + w/2, y + h);
-    ctx.bezierCurveTo(x - 4 + wob, y + h*0.5, x + w*0.2, y + h*0.1, x + w/2, y);
-    ctx.bezierCurveTo(x + w*0.8, y + h*0.1, x + w + 4 - wob, y + h*0.5, x + w/2, y + h);
-    ctx.closePath();
-    ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 3);
-    // inner
-    ctx.fillStyle = '#ffb14c';
-    ctx.beginPath();
-    ctx.moveTo(x + w/2, y + h);
-    ctx.bezierCurveTo(x + 8, y + h*0.6, x + w*0.3, y + h*0.25, x + w/2, y + h*0.18);
-    ctx.bezierCurveTo(x + w*0.7, y + h*0.25, x + w - 8, y + h*0.6, x + w/2, y + h);
-    ctx.closePath();
-    ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    ctx.restore();
-  }
-  function drawFirePit(o) {
-    const x = o.x, y = o.y, w = o.w, h = o.h;
-    // base pit
-    ctx.fillStyle = '#1a0f3a';
-    rrect(x, y + h - 16, w, 16, 6); ctx.fill();
-    // flames across
-    for (let i = 0; i < 4; i++) {
-      const cx = x + 14 + i * (w - 28) / 3;
-      const cy = y + h - 22;
-      const s = 20 + Math.sin(o.phase + i) * 4;
-      ctx.fillStyle = '#ff5a3c';
-      flame(cx, cy, s);
-      ctx.fillStyle = '#ffb14c';
-      flame(cx, cy + 4, s * 0.55);
-    }
-    // outline pit
-    ctx.lineWidth = 2; ctx.strokeStyle = '#ff8a3c';
-    ctx.strokeRect(x + 0.5, y + h - 16, w - 1, 16);
-  }
-  function drawHydrant(o) {
-    const x = o.x, y = o.y, w = o.w, h = o.h;
-    ctx.save();
-    // base shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.ellipse(x + w/2, y + h + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // body — chrome steel so it clearly reads as "object" not "fire"
-    ctx.fillStyle = '#c7cbd6';
-    rrect(x + 4, y + 10, w - 8, h - 16, 6); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 3);
-    // dark stripe
-    ctx.fillStyle = '#5a607a';
-    ctx.fillRect(x + 4, y + h * 0.5, w - 8, 6);
-    // top cap (deep teal)
-    ctx.fillStyle = '#2f6f7a';
-    rrect(x + 8, y, w - 16, 14, 4); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 3);
-    // side nozzles
-    ctx.fillStyle = '#1a0f3a';
-    ctx.fillRect(x - 2, y + h * 0.55, 6, 8);
-    ctx.fillRect(x + w - 4, y + h * 0.55, 6, 8);
-    // base
-    ctx.fillStyle = '#1a0f3a';
-    ctx.fillRect(x + 2, y + h - 8, w - 4, 8);
-    // tiny highlight
-    ctx.globalAlpha = 0.7;
-    ctx.fillStyle = '#fff7e0';
-    ctx.fillRect(x + 10, y + 16, 4, h - 30);
-    ctx.restore();
-  }
-  function drawCone(o) {
-    const x = o.x, y = o.y, w = o.w, h = o.h;
-    ctx.save();
-    // base shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.ellipse(x + w/2, y + h + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffb14c';
-    ctx.beginPath();
-    ctx.moveTo(x + w * 0.5, y);
-    ctx.lineTo(x + w, y + h - 6);
-    ctx.lineTo(x, y + h - 6);
-    ctx.closePath(); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 3);
-    // stripes
-    ctx.fillStyle = '#fff7e0';
-    ctx.fillRect(x + 6, y + h * 0.45, w - 12, 5);
-    ctx.fillRect(x + 4, y + h * 0.65, w - 8, 5);
-    // base
-    ctx.fillStyle = '#1a0f3a';
-    ctx.fillRect(x - 2, y + h - 6, w + 4, 6);
-    ctx.restore();
-  }
-
   function drawPickups() {
-    for (const p of pickups) {
-      const bob = Math.sin(p.phase) * 4;
-      const haloColor =
-        p.kind === 'water'  ? '#4ec5ff' :
-        p.kind === 'orange' ? '#ffe24c' :
-        /* rescue */          '#ffffff';
-      drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, haloColor);
-      if      (p.kind === 'water')  drawWater(p.x, p.y + bob, p.w, p.h);
-      else if (p.kind === 'orange') drawOrange(p.x, p.y + bob, p.w, p.h);
-      else                          drawRescueCapy(p.x, p.y + bob, p.w, p.h, p.phase);
+    for (const p of state.pickups) {
+      const bob = Math.sin(p.phase) * 5;
+      drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, '#4ec5ff');
+      Sprite.draw('water', p.x, p.y + bob, p.w, p.h, { phase: p.phase });
     }
   }
-
   function drawPickupHalo(cx, cy, w, phase, color) {
-    const pulse = 0.5 + 0.5 * Math.sin(phase * 1.5);
-    const radius = w * (0.95 + pulse * 0.25);
+    const pulse = 0.5 + 0.5 * Math.sin(phase * 1.6);
+    const r = w * (1.05 + pulse * 0.3);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    const grd = ctx.createRadialGradient(cx, cy, w * 0.1, cx, cy, radius);
-    grd.addColorStop(0, color);
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = grd;
-    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+    const g = ctx.createRadialGradient(cx, cy, w * 0.1, cx, cy, r);
+    g.addColorStop(0, color);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
-    // tether line to ground so it reads as "floating thing", not "wall"
+    // dashed tether
     ctx.save();
     ctx.globalAlpha = 0.35;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([3, 4]);
     ctx.beginPath();
-    ctx.moveTo(cx, cy + w * 0.4);
+    ctx.moveTo(cx, cy + w * 0.42);
     ctx.lineTo(cx, GROUND_Y - 4);
     ctx.stroke();
     ctx.restore();
   }
-  function drawWater(x, y, w, h) {
-    ctx.save();
-    // bucket body
-    ctx.fillStyle = '#4ec5ff';
-    ctx.beginPath();
-    ctx.moveTo(x + 4, y + 10);
-    ctx.lineTo(x + w - 4, y + 10);
-    ctx.lineTo(x + w - 8, y + h);
-    ctx.lineTo(x + 8, y + h);
-    ctx.closePath(); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // water top
-    ctx.fillStyle = '#a8e6ff';
-    rrect(x + 4, y + 8, w - 8, 6, 3); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // handle
-    ctx.strokeStyle = '#1a0f3a';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(x + w / 2, y + 8, w * 0.4, Math.PI, 0);
-    ctx.stroke();
-    // sheen
-    ctx.fillStyle = '#fff7e0';
-    ctx.globalAlpha = 0.7;
-    ctx.fillRect(x + 10, y + 16, 4, 16);
-    ctx.restore();
-  }
-  function drawOrange(x, y, w, h) {
-    ctx.save();
-    const cx = x + w / 2, cy = y + h / 2;
-    // body
-    ctx.fillStyle = '#ff8a1f';
-    ctx.beginPath(); ctx.arc(cx, cy, w * 0.45, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // dimples
-    ctx.fillStyle = '#e07212';
-    ctx.beginPath(); ctx.arc(cx - w * 0.12, cy + w * 0.08, w * 0.04, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + w * 0.18, cy - w * 0.04, w * 0.035, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + w * 0.05, cy + w * 0.2, w * 0.04, 0, Math.PI * 2); ctx.fill();
-    // sheen
-    ctx.globalAlpha = 0.7;
-    ctx.fillStyle = '#ffd24a';
-    ctx.beginPath(); ctx.ellipse(cx - w * 0.18, cy - w * 0.18, w * 0.12, w * 0.07, -0.6, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-    // leaf
-    ctx.fillStyle = '#3fae3a';
-    ctx.beginPath();
-    ctx.moveTo(cx + w * 0.05, cy - w * 0.42);
-    ctx.quadraticCurveTo(cx + w * 0.3, cy - w * 0.55, cx + w * 0.32, cy - w * 0.3);
-    ctx.quadraticCurveTo(cx + w * 0.15, cy - w * 0.3, cx + w * 0.05, cy - w * 0.42);
-    ctx.closePath(); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 1.5);
-    // stem
-    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(cx, cy - w * 0.42); ctx.lineTo(cx + w * 0.05, cy - w * 0.45); ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawRescueCapy(x, y, w, h, phase) {
-    const cx = x + w / 2, cy = y + h / 2;
-    // flashing "HELP" text bubble above
-    ctx.save();
-    const blink = (Math.sin(phase * 2) * 0.5 + 0.5);
-    ctx.globalAlpha = 0.4 + blink * 0.6;
-    ctx.fillStyle = '#ffd24a';
-    rrect(cx - 22, y - 16, 44, 14, 4); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 1.5);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#1a0f3a';
-    ctx.font = 'bold 10px ui-rounded, Nunito, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('HELP!', cx, y - 6);
-    ctx.restore();
-    // capybara with one arm waving
-    drawCapybara(cx, cy + 2, Math.min(w, h) * 0.42, { helmet: 'none', arm: 'wave', skin: '#a87544' });
-  }
 
   function drawTruck() {
-    const cx = truck.x + TRUCK_W * 0.5;
-    const cy = truck.y + TRUCK_H * 0.5;
-
-    // boost aura — pulsing radial glow underneath the truck
-    if (boosting) {
+    const t = state.truck;
+    const cx = t.x + TRUCK_W * 0.5;
+    const cy = t.y + TRUCK_H * 0.5;
+    // boost aura
+    if (state.boosting) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 60);
-      const r = TRUCK_W * 0.9 * pulse;
-      const grd = ctx.createRadialGradient(cx, cy, 8, cx, cy, r);
-      grd.addColorStop(0, 'rgba(255, 226, 76, 0.85)');
-      grd.addColorStop(0.6, 'rgba(255, 90, 60, 0.45)');
-      grd.addColorStop(1, 'rgba(255, 90, 60, 0)');
-      ctx.fillStyle = grd;
+      const r = TRUCK_W * 1.0 * pulse;
+      const g = ctx.createRadialGradient(cx, cy, 8, cx, cy, r);
+      g.addColorStop(0, 'rgba(255, 226, 76, 0.9)');
+      g.addColorStop(0.5, 'rgba(255, 90, 60, 0.45)');
+      g.addColorStop(1, 'rgba(255, 90, 60, 0)');
+      ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
-
+    // bob (subtle vertical wobble while grounded)
+    const bobOffset = t.onGround ? Math.sin(t.bob) * 1.6 : 0;
     ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(truck.rot * 0.1);
-    ctx.scale(truck.stretch, truck.squash);
+    ctx.translate(cx, cy + bobOffset);
+    ctx.scale(t.stretch, t.squash);
     ctx.translate(-cx, -cy);
-    drawFireTruck(truck.x, truck.y, TRUCK_W, TRUCK_H);
+    Sprite.draw('truck', t.x, t.y, TRUCK_W, TRUCK_H, {
+      blink: t.blinking > 0,
+      airborne: !t.onGround,
+      boost: state.boosting,
+    });
     ctx.restore();
   }
 
-  function drawFireTruck(x, y, w, h) {
-    // chassis shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    rrect(x + 4, y + h - 6, w - 8, 8, 4); ctx.fill();
-
-    // rear cargo (water tank) — keep lower so capybara dominates
-    ctx.fillStyle = '#d94028';
-    rrect(x + 2, y + 24, w * 0.60, h - 30, 6); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // ladder on top of tank
-    ctx.strokeStyle = '#fff7e0';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x + 8, y + 20, w * 0.55, 6);
-    for (let lx = x + 10; lx < x + w * 0.6; lx += 9) {
-      ctx.beginPath(); ctx.moveTo(lx, y + 20); ctx.lineTo(lx, y + 26); ctx.stroke();
-    }
-    // gold side stripe
-    ctx.fillStyle = '#ffd24a';
-    ctx.fillRect(x + 4, y + h * 0.6, w * 0.6, 5);
-
-    // rescued capybaras stacked on the back of the truck (visual reward)
-    drawRescuedStack(x, y, w, h);
-
-    // cab (lower / shorter — capybara sits in it and pokes way up)
-    ctx.fillStyle = '#ff5a3c';
-    rrect(x + w * 0.56, y + 28, w * 0.42, h - 36, 8); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-
-    // side window of cab
-    ctx.fillStyle = '#a8e6ff';
-    rrect(x + w * 0.62, y + 34, w * 0.32, 16, 3); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-
-    // BIG RIZZLE — sits in the cab, head and helmet poking far above the roof
-    const capCx = x + w * 0.78;
-    const capCy = y + 6;
-    drawCapybara(capCx, capCy, 34, { arm: 'wheel' });
-
-    // siren light on top of cab (in front of capybara)
-    const sirenFlash = (performance.now() / 200) % 2 < 1;
-    ctx.fillStyle = sirenFlash ? '#ffe24c' : '#4ec5ff';
-    rrect(x + w * 0.56, y + 22, 14, 8, 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 1.5);
-
-    // bumper
-    ctx.fillStyle = '#1a0f3a';
-    ctx.fillRect(x + w - 8, y + h - 22, 8, 10);
-
-    // wheels
-    drawWheel(x + 22,        y + h - 4, 16);
-    drawWheel(x + w - 30,    y + h - 4, 16);
-  }
-
-  function drawRescuedStack(x, y, w, h) {
-    if (rescuedCount <= 0) return;
-    const maxVisible = Math.min(rescuedCount, 4);
-    for (let i = 0; i < maxVisible; i++) {
-      const px = x + 14 + i * 20;
-      const py = y + 12 - 6 + Math.sin(performance.now() / 220 + i) * 1.5;
-      drawCapybara(px, py, 10, { helmet: 'none', skin: i % 2 ? '#a87544' : '#b08252' });
-    }
-    if (rescuedCount > 4) {
-      ctx.save();
-      ctx.font = 'bold 12px ui-rounded, Nunito, system-ui, sans-serif';
-      ctx.fillStyle = '#fff7e0';
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#1a0f3a';
-      const t = '+' + (rescuedCount - 4);
-      ctx.strokeText(t, x + 14 + 4 * 20 + 2, y + 12);
-      ctx.fillText(t, x + 14 + 4 * 20 + 2, y + 12);
-      ctx.restore();
-    }
-  }
-
-  function drawWheel(cx, cy, r) {
-    ctx.save();
-    // tire
-    ctx.fillStyle = '#1a0f3a';
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-    // hub
-    ctx.fillStyle = '#fff7e0';
-    ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2); ctx.fill();
-    // spokes (rotate w/ distance)
-    const spin = bg.road * 0.08;
-    ctx.strokeStyle = '#1a0f3a';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 3; i++) {
-      const a = spin + i * (Math.PI / 3);
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * r * 0.1, cy + Math.sin(a) * r * 0.1);
-      ctx.lineTo(cx + Math.cos(a) * r * 0.45, cy + Math.sin(a) * r * 0.45);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // Full Rizzle character drawing — head, beard, helmet, optional body/arms.
-  // Use opts.size to scale (1.0 = ~120px tall hero on the truck).
-  // opts.helmet = 'fire' (default red firefighter) or 'none'.
-  // opts.arm = 'wave' (arm raised), 'wheel' (gripping steering), or null.
-  // opts.outline draws strong outlines (default true).
-  function drawCapybara(cx, cy, size, opts) {
-    opts = opts || {};
-    const s = size;
-    const outline = opts.outline !== false ? '#1a0f3a' : null;
-    const skin = opts.skin || '#b4884f';
-    const beard = opts.beard || '#fff7e0';
-
-    ctx.save();
-
-    // Body (under the head if we draw one)
-    if (opts.body) {
-      ctx.fillStyle = opts.bodyColor || '#7a4a2a';
-      // chunky rounded torso
-      rrect(cx - s * 0.55, cy + s * 0.35, s * 1.1, s * 0.85, s * 0.25);
-      ctx.fill();
-      if (outline) outlineLast(ctx, outline, Math.max(1.5, s * 0.04));
-      // reflective firefighter stripe
-      ctx.fillStyle = '#ffd24a';
-      ctx.fillRect(cx - s * 0.5, cy + s * 0.6, s * 1.0, s * 0.09);
-    }
-
-    // Head base (tan circle, slightly squashed wide like a capybara)
-    ctx.fillStyle = skin;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, s * 0.78, s * 0.7, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.5, s * 0.05));
-
-    // tiny rounded ears
-    ctx.fillStyle = skin;
-    ctx.beginPath(); ctx.ellipse(cx - s * 0.62, cy - s * 0.45, s * 0.18, s * 0.14, -0.3, 0, Math.PI * 2); ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
-    ctx.beginPath(); ctx.ellipse(cx + s * 0.62, cy - s * 0.45, s * 0.18, s * 0.14, 0.3, 0, Math.PI * 2); ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
-    // inner ear
-    ctx.fillStyle = '#7a5230';
-    ctx.beginPath(); ctx.ellipse(cx - s * 0.6, cy - s * 0.43, s * 0.08, s * 0.06, -0.3, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx + s * 0.6, cy - s * 0.43, s * 0.08, s * 0.06, 0.3, 0, Math.PI * 2); ctx.fill();
-
-    // White beard / fluffy chin — Rizzle's signature
-    ctx.fillStyle = beard;
-    ctx.beginPath();
-    // wavy beard outline
-    ctx.moveTo(cx - s * 0.55, cy + s * 0.05);
-    ctx.bezierCurveTo(cx - s * 0.75, cy + s * 0.55, cx - s * 0.3, cy + s * 0.95, cx, cy + s * 0.85);
-    ctx.bezierCurveTo(cx + s * 0.3, cy + s * 0.95, cx + s * 0.75, cy + s * 0.55, cx + s * 0.55, cy + s * 0.05);
-    ctx.bezierCurveTo(cx + s * 0.3, cy + s * 0.2, cx - s * 0.3, cy + s * 0.2, cx - s * 0.55, cy + s * 0.05);
-    ctx.closePath();
-    ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.4, s * 0.05));
-    // beard texture wisps
-    ctx.strokeStyle = '#cfc4a3';
-    ctx.lineWidth = Math.max(1, s * 0.025);
-    ctx.beginPath();
-    ctx.moveTo(cx - s * 0.3, cy + s * 0.35); ctx.lineTo(cx - s * 0.2, cy + s * 0.7);
-    ctx.moveTo(cx, cy + s * 0.4);            ctx.lineTo(cx + s * 0.05, cy + s * 0.85);
-    ctx.moveTo(cx + s * 0.3, cy + s * 0.35); ctx.lineTo(cx + s * 0.25, cy + s * 0.7);
-    ctx.stroke();
-
-    // Eyes (one half-closed, one wide — derpy Rizzle energy)
-    // sclera bumps poking through the beard
-    ctx.fillStyle = '#dff3b0';
-    ctx.beginPath(); ctx.arc(cx - s * 0.3, cy - s * 0.05, s * 0.18, 0, Math.PI * 2); ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
-    ctx.fillStyle = '#dff3b0';
-    ctx.beginPath(); ctx.arc(cx + s * 0.3, cy - s * 0.05, s * 0.2, 0, Math.PI * 2); ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
-    // half-closed left eye — flat top
-    ctx.fillStyle = skin;
-    ctx.fillRect(cx - s * 0.48, cy - s * 0.23, s * 0.36, s * 0.18);
-    // pupils
-    ctx.fillStyle = outline || '#1a0f3a';
-    ctx.beginPath(); ctx.arc(cx - s * 0.30, cy + s * 0.00, s * 0.05, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + s * 0.32, cy - s * 0.05, s * 0.07, 0, Math.PI * 2); ctx.fill();
-    // eye gleams
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(cx + s * 0.34, cy - s * 0.08, s * 0.025, 0, Math.PI * 2); ctx.fill();
-
-    // Tiny mouth corner peeking out of beard
-    ctx.fillStyle = outline || '#1a0f3a';
-    ctx.fillRect(cx - s * 0.04, cy + s * 0.18, s * 0.08, s * 0.04);
-
-    // Helmet
-    if (opts.helmet !== 'none') {
-      drawFireHelmet(cx, cy, s, outline);
-    }
-
-    // Arms
-    if (opts.arm === 'wave') {
-      // raised arm waving
-      ctx.fillStyle = skin;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = outline || '#1a0f3a';
-      ctx.lineWidth = Math.max(2, s * 0.16);
-      ctx.beginPath();
-      ctx.moveTo(cx + s * 0.5, cy + s * 0.6);
-      ctx.quadraticCurveTo(cx + s * 1.0, cy + s * 0.2, cx + s * 1.1, cy - s * 0.4);
-      ctx.stroke();
-      // paw
-      ctx.fillStyle = skin;
-      ctx.beginPath(); ctx.arc(cx + s * 1.1, cy - s * 0.45, s * 0.16, 0, Math.PI * 2); ctx.fill();
-      if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
-    } else if (opts.arm === 'wheel') {
-      // both arms forward gripping steering wheel
-      ctx.strokeStyle = outline || '#1a0f3a';
-      ctx.lineCap = 'round';
-      ctx.lineWidth = Math.max(2, s * 0.16);
-      ctx.beginPath();
-      ctx.moveTo(cx - s * 0.35, cy + s * 0.55);
-      ctx.quadraticCurveTo(cx + s * 0.0, cy + s * 0.95, cx + s * 0.55, cy + s * 0.85);
-      ctx.stroke();
-      // wheel
-      ctx.fillStyle = '#1a0f3a';
-      ctx.beginPath(); ctx.arc(cx + s * 0.6, cy + s * 0.85, s * 0.18, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff7e0';
-      ctx.beginPath(); ctx.arc(cx + s * 0.6, cy + s * 0.85, s * 0.08, 0, Math.PI * 2); ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  // Red firefighter helmet (the iconic Rizzle hat)
-  function drawFireHelmet(cx, cy, s, outline) {
-    ctx.save();
-    // back brim
-    ctx.fillStyle = '#1a0f3a';
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - s * 0.38, s * 0.95, s * 0.18, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // red dome
-    ctx.fillStyle = '#ff3a2a';
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - s * 0.55, s * 0.78, s * 0.55, 0, Math.PI, 0);
-    ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.4, s * 0.05));
-    // front bill / brim (cap-style going forward over right side, like the pfp)
-    ctx.fillStyle = '#ff3a2a';
-    ctx.beginPath();
-    ctx.moveTo(cx + s * 0.15, cy - s * 0.42);
-    ctx.quadraticCurveTo(cx + s * 1.1, cy - s * 0.6, cx + s * 1.05, cy - s * 0.18);
-    ctx.quadraticCurveTo(cx + s * 0.6, cy - s * 0.25, cx + s * 0.4, cy - s * 0.32);
-    ctx.closePath();
-    ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.4, s * 0.05));
-    // yellow shield with bee
-    ctx.fillStyle = '#ffd24a';
-    ctx.beginPath();
-    ctx.moveTo(cx - s * 0.18, cy - s * 0.95);
-    ctx.lineTo(cx + s * 0.18, cy - s * 0.95);
-    ctx.lineTo(cx + s * 0.22, cy - s * 0.7);
-    ctx.lineTo(cx, cy - s * 0.6);
-    ctx.lineTo(cx - s * 0.22, cy - s * 0.7);
-    ctx.closePath();
-    ctx.fill();
-    if (outline) outlineLast(ctx, outline, Math.max(1.1, s * 0.04));
-    // bee marking
-    ctx.fillStyle = outline || '#1a0f3a';
-    ctx.beginPath(); ctx.arc(cx, cy - s * 0.78, s * 0.05, 0, Math.PI * 2); ctx.fill();
-    ctx.fillRect(cx - s * 0.05, cy - s * 0.83, s * 0.1, s * 0.02);
-    ctx.restore();
-  }
-
-  // ─── Silly sky capybaras ───────────────────────────────────────────────
-  function drawSkyNpcs() {
-    for (const n of npcs) {
-      switch (n.kind) {
-        case 'cloud':   drawCloudCapy(n.x, n.y, n.phase); break;
-        case 'balloon': drawBalloonCapy(n.x, n.y, n.phase); break;
-        case 'plane':   drawPlaneCapy(n.x, n.y, n.phase); break;
-        case 'ufo':     drawUfoCapy(n.x, n.y, n.phase); break;
-      }
-    }
-  }
-
-  function drawCloudCapy(cx, cy, phase) {
-    // Cloud shaped like a capybara head — three big white puffs forming the silhouette
-    ctx.save();
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = '#fff7e0';
-    // body of the cloud
-    ctx.beginPath(); ctx.ellipse(cx, cy, 50, 22, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx - 22, cy - 8, 18, 14, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx + 22, cy - 8, 18, 14, 0, 0, Math.PI * 2); ctx.fill();
-    // ears
-    ctx.beginPath(); ctx.ellipse(cx - 30, cy - 18, 8, 6, -0.3, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx + 30, cy - 18, 8, 6, 0.3, 0, Math.PI * 2); ctx.fill();
-    // eyes + lazy mouth
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#3a1d77';
-    ctx.beginPath(); ctx.arc(cx - 12, cy - 4, 2.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 2.2, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#3a1d77';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - 5, cy + 6);
-    ctx.quadraticCurveTo(cx, cy + 10, cx + 5, cy + 6);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawBalloonCapy(cx, cy, phase) {
-    ctx.save();
-    // bobbing rope sway
-    const sway = Math.sin(phase * 0.7) * 4;
-
-    // balloon: capybara face shape (giant tan ellipse) with ears
-    const bx = cx + sway * 0.4, by = cy;
-    ctx.fillStyle = '#c79a5e';
-    ctx.beginPath(); ctx.ellipse(bx, by, 46, 52, 0, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2.5);
-    // ears
-    ctx.fillStyle = '#c79a5e';
-    ctx.beginPath(); ctx.ellipse(bx - 36, by - 36, 14, 10, -0.4, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    ctx.beginPath(); ctx.ellipse(bx + 36, by - 36, 14, 10, 0.4, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // beard
-    ctx.fillStyle = '#fff7e0';
-    ctx.beginPath(); ctx.ellipse(bx, by + 22, 30, 18, 0, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // eyes
-    ctx.fillStyle = '#1a0f3a';
-    ctx.beginPath(); ctx.arc(bx - 16, by - 4, 3, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(bx + 16, by - 4, 3, 0, Math.PI * 2); ctx.fill();
-    // tiny smile
-    ctx.strokeStyle = '#1a0f3a';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(bx - 6, by + 10); ctx.quadraticCurveTo(bx, by + 14, bx + 6, by + 10);
-    ctx.stroke();
-    // ropes
-    const ropeX = bx, ropeY = by + 40;
-    ctx.strokeStyle = '#1a0f3a';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(ropeX - 14, ropeY); ctx.lineTo(ropeX - 14, ropeY + 18);
-    ctx.moveTo(ropeX + 14, ropeY); ctx.lineTo(ropeX + 14, ropeY + 18);
-    ctx.stroke();
-    // basket
-    ctx.fillStyle = '#7a4a2a';
-    rrect(ropeX - 18, ropeY + 18, 36, 14, 3); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // basket weave
-    ctx.strokeStyle = '#1a0f3a';
-    ctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
-      ctx.beginPath();
-      ctx.moveTo(ropeX - 18 + i * 9, ropeY + 18);
-      ctx.lineTo(ropeX - 18 + i * 9, ropeY + 32);
-      ctx.stroke();
-    }
-    // passenger capybara peeking out
-    drawCapybara(ropeX, ropeY + 12, 9, { helmet: 'none', skin: '#a87544' });
-    ctx.restore();
-  }
-
-  function drawPlaneCapy(cx, cy, phase) {
-    ctx.save();
-    // plane body
-    ctx.fillStyle = '#fff7e0';
-    rrect(cx - 18, cy - 8, 36, 16, 6); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // nose
-    ctx.fillStyle = '#ff5a3c';
-    ctx.beginPath();
-    ctx.moveTo(cx + 18, cy - 8);
-    ctx.lineTo(cx + 28, cy);
-    ctx.lineTo(cx + 18, cy + 8);
-    ctx.closePath(); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // tail fin
-    ctx.fillStyle = '#ff5a3c';
-    ctx.beginPath();
-    ctx.moveTo(cx - 18, cy - 8);
-    ctx.lineTo(cx - 26, cy - 18);
-    ctx.lineTo(cx - 14, cy - 8);
-    ctx.closePath(); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // wing
-    ctx.fillStyle = '#cccccc';
-    rrect(cx - 8, cy + 2, 18, 5, 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 1.5);
-    // cockpit window with tiny capybara
-    ctx.fillStyle = '#a8e6ff';
-    ctx.beginPath(); ctx.arc(cx + 6, cy - 2, 6, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 1.5);
-    drawCapybara(cx + 6, cy - 1, 5, { helmet: 'none', skin: '#a87544' });
-    // propeller spinning
-    const spin = (phase * 3) % (Math.PI * 2);
-    ctx.strokeStyle = '#1a0f3a';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx + 28 + Math.cos(spin) * 6,        cy + Math.sin(spin) * 6);
-    ctx.lineTo(cx + 28 + Math.cos(spin + Math.PI) * 6, cy + Math.sin(spin + Math.PI) * 6);
-    ctx.stroke();
-    // BANNER — towed behind the plane
-    const bannerX = cx - 18 - 80;
-    const bannerY = cy;
-    // tow line
-    ctx.strokeStyle = '#1a0f3a';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx - 18, cy);
-    ctx.lineTo(bannerX + 80, bannerY);
-    ctx.stroke();
-    // banner background
-    ctx.fillStyle = '#ffe24c';
-    rrect(bannerX, bannerY - 11, 80, 22, 4); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // banner text
-    ctx.fillStyle = '#1a0f3a';
-    ctx.font = 'bold 12px ui-rounded, Nunito, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('RIZZLE 4 PREZ', bannerX + 40, bannerY + 4);
-    ctx.restore();
-  }
-
-  function drawUfoCapy(cx, cy, phase) {
-    ctx.save();
-    // dome
-    ctx.fillStyle = '#a8e6ff';
-    ctx.globalAlpha = 0.95;
-    ctx.beginPath(); ctx.ellipse(cx, cy - 4, 18, 14, 0, Math.PI, 0); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    ctx.globalAlpha = 1;
-    // capybara at the controls
-    drawCapybara(cx, cy - 4, 10, { helmet: 'none', skin: '#a87544' });
-    // saucer body
-    ctx.fillStyle = '#cfd6e6';
-    ctx.beginPath(); ctx.ellipse(cx, cy + 2, 34, 8, 0, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
-    // lights
-    const lightOn = ((performance.now() / 150) | 0) % 2 === 0;
-    ctx.fillStyle = lightOn ? '#ffe24c' : '#ff5a3c';
-    ctx.beginPath(); ctx.arc(cx - 18, cy + 2, 2.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx,      cy + 4, 2.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 18, cy + 2, 2.5, 0, Math.PI * 2); ctx.fill();
-    // tractor beam abducting an orange
-    ctx.fillStyle = 'rgba(168, 230, 255, 0.35)';
-    ctx.beginPath();
-    ctx.moveTo(cx - 12, cy + 8);
-    ctx.lineTo(cx - 22, cy + 50);
-    ctx.lineTo(cx + 22, cy + 50);
-    ctx.lineTo(cx + 12, cy + 8);
-    ctx.closePath(); ctx.fill();
-    // orange being beamed up (small)
-    const bob = Math.sin(phase * 2) * 3;
-    ctx.fillStyle = '#ff8a1f';
-    ctx.beginPath(); ctx.arc(cx, cy + 36 + bob, 7, 0, Math.PI * 2); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 1.5);
-    ctx.fillStyle = '#3fae3a';
-    ctx.beginPath();
-    ctx.moveTo(cx + 1, cy + 30 + bob);
-    ctx.quadraticCurveTo(cx + 5, cy + 26 + bob, cx + 6, cy + 30 + bob);
-    ctx.quadraticCurveTo(cx + 3, cy + 30 + bob, cx + 1, cy + 30 + bob);
-    ctx.closePath(); ctx.fill();
-    ctx.restore();
-  }
-
-  // ─── Rooftop squads & koolaid heads ───────────────────────────────────
-  function drawRooftopNpcs() {
-    // Plant capybara squads on a virtual rooftop line above mid buildings.
-    // We don't perfectly attach to a specific building since they parallax
-    // at a slightly different cadence — the eye reads it fine.
-    for (const n of npcs) {
-      if (n.kind !== 'rooftop') continue;
-      const x = n.x;
-      const roofY = GROUND_Y - 160;
-      // little roof platform under them so they don't appear to float
-      ctx.save();
-      ctx.fillStyle = '#1a0f3a';
-      ctx.fillRect(x - 6, roofY + 8, 64, 3);
-      ctx.restore();
-      // 3 capybara silhouettes side-by-side
-      for (let i = 0; i < 3; i++) {
-        drawCapybara(x + i * 18, roofY - 2, 11, {
-          helmet: i === 1 ? 'fire' : 'none',
-          arm: i === 2 ? 'wave' : null,
-          skin: ['#a87544', '#b0855a', '#9e6c3e'][i],
-        });
-      }
-    }
-  }
-
-  function drawKoolaidNpcs() {
-    for (const n of npcs) {
-      if (n.kind !== 'koolaid') continue;
-      // window frame
-      ctx.save();
-      ctx.fillStyle = '#1a0f3a';
-      ctx.fillRect(n.x - 38, n.y - 38, 76, 76);
-      ctx.fillStyle = '#a8e6ff';
-      ctx.fillRect(n.x - 34, n.y - 34, 68, 68);
-      // shards of broken window
-      ctx.fillStyle = '#fff7e0';
-      ctx.beginPath();
-      ctx.moveTo(n.x - 34, n.y - 34); ctx.lineTo(n.x - 18, n.y - 28); ctx.lineTo(n.x - 30, n.y - 18);
-      ctx.closePath(); ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(n.x + 34, n.y - 34); ctx.lineTo(n.x + 18, n.y - 30); ctx.lineTo(n.x + 30, n.y - 16);
-      ctx.closePath(); ctx.fill();
-      ctx.restore();
-      // GIANT capybara head bursting out, screaming "OH YEAH!"
-      drawCapybara(n.x, n.y + 4, 32, { helmet: 'none', arm: 'wave', skin: '#b08252' });
-      // shout bubble
-      ctx.save();
-      const blink = (Math.sin(n.phase * 1.5) * 0.5 + 0.5);
-      ctx.globalAlpha = 0.5 + blink * 0.5;
-      ctx.fillStyle = '#ffe24c';
-      rrect(n.x + 28, n.y - 30, 64, 22, 5); ctx.fill();
-      outlineLast(ctx, '#1a0f3a', 1.5);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#1a0f3a';
-      ctx.font = 'bold 13px ui-rounded, Nunito, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('OH YEAH!', n.x + 60, n.y - 16);
-      ctx.restore();
-    }
-  }
-
-  // ─── Danger lane + telegraph chevrons ─────────────────────────────────
-  function drawDangerLane() {
-    // Subtle vignette directly above the road surface so ground-level
-    // obstacles read clearly against the busy mid background.
-    ctx.save();
-    const grd = ctx.createLinearGradient(0, GROUND_Y - 60, 0, GROUND_Y);
-    grd.addColorStop(0, 'rgba(10, 6, 35, 0)');
-    grd.addColorStop(1, 'rgba(10, 6, 35, 0.55)');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, GROUND_Y - 60, W, 60);
-    ctx.restore();
-  }
-
-  function drawTelegraphs() {
-    for (const t of telegraphs) {
-      const a = clamp(t.life / t.max, 0, 1);
-      const blink = 0.5 + 0.5 * Math.sin(performance.now() / 60);
-      ctx.save();
-      ctx.globalAlpha = a * (0.6 + blink * 0.4);
-      ctx.fillStyle = '#ffe24c';
-      // chevron pointing left ◀
-      ctx.beginPath();
-      ctx.moveTo(W - 6,  t.y);
-      ctx.lineTo(W - 20, t.y - 12);
-      ctx.lineTo(W - 14, t.y);
-      ctx.lineTo(W - 20, t.y + 12);
-      ctx.closePath();
-      ctx.fill();
-      outlineLast(ctx, '#1a0f3a', 1.5);
-      ctx.restore();
-    }
-  }
-
-  function drawHotTubNpcs() {
-    // capybaras chilling in window-mounted hot tubs in the mid building layer
-    for (const n of npcs) {
-      if (n.kind !== 'hottub') continue;
-      const baseY = GROUND_Y - 2;
-      const y = baseY - 110;
-      const x = n.x;
-      // hot tub bowl
-      ctx.save();
-      ctx.fillStyle = '#4ec5ff';
-      rrect(x, y + 8, 56, 24, 6); ctx.fill();
-      outlineLast(ctx, '#1a0f3a', 1.5);
-      // steam wisps
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#fff7e0';
-      for (let i = 0; i < 3; i++) {
-        const wy = y - 6 - Math.sin(n.phase + i) * 4;
-        ctx.beginPath(); ctx.arc(x + 14 + i * 14, wy, 4, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      ctx.restore();
-      // capybara head peeking out
-      drawCapybara(x + 28, y + 8, 10, { helmet: 'none', skin: '#a87544' });
-    }
-  }
-
-  function drawSidewalkNpcs() {
-    for (const n of npcs) {
-      if (n.kind !== 'sidewalk') continue;
-      const x = n.x;
-      const y = GROUND_Y - 4;
-      // tiny capybara waving from the sidewalk
-      drawCapybara(x, y - 10, 12, { helmet: 'none', arm: 'wave', skin: '#a87544' });
-    }
-  }
-
-  function drawHints() {
-    if (mode !== 'playing') return;
-    if (hintJumpAlpha <= 0 && hintWaterAlpha <= 0) return;
-    if (hintJumpAlpha > 0)  drawHintCard(W * 0.5, 120, 'TAP / SPACE to JUMP', hintJumpAlpha, '#fff7e0');
-    if (hintWaterAlpha > 0) drawHintCard(W * 0.5, 168, 'Grab WATER to trigger SIREN BOOST', hintWaterAlpha, '#4ec5ff');
-  }
-
-  function drawHintCard(cx, cy, text, alpha, accent) {
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.font = 'bold 18px ui-rounded, Nunito, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    const padX = 18, padY = 8;
-    const m = ctx.measureText(text);
-    const w = m.width + padX * 2;
-    const h = 28 + padY;
-    ctx.fillStyle = 'rgba(26, 15, 58, 0.78)';
-    rrect(cx - w / 2, cy - h / 2, w, h, 14); ctx.fill();
-    outlineLast(ctx, accent, 2);
-    ctx.fillStyle = accent;
-    ctx.fillText(text, cx, cy + 5);
-    ctx.restore();
-  }
-
+  // ─── Particles & popups ───────────────────────────────────────────────
   function drawParticles() {
-    for (const p of particles) {
+    for (const p of state.particles) {
       const a = clamp(p.life / p.max, 0, 1);
       ctx.save();
       ctx.globalAlpha = a;
       ctx.fillStyle = p.color;
-      if (p.kind === 'smoke' || p.kind === 'flame') {
+      if (p.kind === 'dust' || p.kind === 'flame') {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
@@ -1801,7 +1004,7 @@
     }
   }
   function drawPopups() {
-    for (const p of popups) {
+    for (const p of state.popups) {
       const a = clamp(p.life / p.max, 0, 1);
       ctx.save();
       ctx.globalAlpha = a;
@@ -1816,79 +1019,354 @@
     }
   }
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Canvas drawing utilities
-  // ───────────────────────────────────────────────────────────────────────
-  function rrect(x, y, w, h, r) {
-    if (w <= 0 || h <= 0) { ctx.beginPath(); return; }
-    r = Math.max(0, Math.min(r, w / 2, h / 2));
+  function drawBoostOverlay() {
+    if (!state.boosting) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const g = ctx.createRadialGradient(W * 0.5, H * 0.55, H * 0.25, W * 0.5, H * 0.55, H * 0.95);
+    g.addColorStop(0, 'rgba(255, 210, 80, 0)');
+    g.addColorStop(1, 'rgba(255, 90, 60, 0.32)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  function drawHints() {
+    if (mode !== 'playing') return;
+    if (state.hint.jumpA  > 0) hintCard(W * 0.5, 120, 'TAP / SPACE to JUMP',           state.hint.jumpA,  '#fff7e0');
+    if (state.hint.waterA > 0) hintCard(W * 0.5, 162, 'Grab WATER for SIREN BOOST',   state.hint.waterA, '#a8e6ff');
+  }
+  function hintCard(cx, cy, text, alpha, accent) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 18px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    const padX = 18, padY = 9;
+    const m = ctx.measureText(text);
+    const w = m.width + padX * 2;
+    const h = 28 + padY;
+    ctx.fillStyle = 'rgba(26, 15, 58, 0.78)';
+    rrect(cx - w / 2, cy - h / 2, w, h, 14); ctx.fill();
+    strokeShape(accent, 2);
+    ctx.fillStyle = accent;
+    ctx.fillText(text, cx, cy + 5);
+    ctx.restore();
+  }
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   PROCEDURAL FALLBACK SPRITES
+  //   Registered with Sprite.registerFallback so they can be replaced by
+  //   loaded PNGs later with zero code changes outside this block.
+  // ═════════════════════════════════════════════════════════════════════
+  Sprite.registerFallback('fire', (x, y, w, h, opts) => {
+    const phase = opts.phase || 0;
+    const wob = Math.sin(phase) * 4;
+    ctx.save();
+    // base shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
+    ctx.ellipse(x + w / 2, y + h + 3, w * 0.55, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // outer flame
+    ctx.fillStyle = '#ff5a3c';
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2, y + h);
+    ctx.bezierCurveTo(x - 6 + wob, y + h * 0.5,  x + w * 0.18, y + h * 0.12, x + w / 2, y);
+    ctx.bezierCurveTo(x + w * 0.82, y + h * 0.12, x + w + 6 - wob, y + h * 0.5,  x + w / 2, y + h);
     ctx.closePath();
-  }
-  function outlineLast(ctx, color, lw) {
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lw;
+    ctx.fill();
+    strokeShape('#1a0f3a', 3);
+    // inner flame
+    ctx.fillStyle = '#ffb14c';
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2, y + h);
+    ctx.bezierCurveTo(x + 10,    y + h * 0.6,  x + w * 0.3, y + h * 0.25, x + w / 2, y + h * 0.18);
+    ctx.bezierCurveTo(x + w * 0.7, y + h * 0.25, x + w - 10, y + h * 0.6,  x + w / 2, y + h);
+    ctx.closePath();
+    ctx.fill();
+    // hot core
+    ctx.fillStyle = '#ffe9a8';
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + h * 0.55, w * 0.18, h * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  Sprite.registerFallback('water', (x, y, w, h) => {
+    ctx.save();
+    // bucket body
+    ctx.fillStyle = '#4ec5ff';
+    ctx.beginPath();
+    ctx.moveTo(x + 4, y + 14);
+    ctx.lineTo(x + w - 4, y + 14);
+    ctx.lineTo(x + w - 8, y + h);
+    ctx.lineTo(x + 8, y + h);
+    ctx.closePath();
+    ctx.fill();
+    strokeShape('#1a0f3a', 3);
+    // water surface
+    ctx.fillStyle = '#a8e6ff';
+    rrect(x + 4, y + 10, w - 8, 8, 4); ctx.fill();
+    strokeShape('#1a0f3a', 2.5);
+    // handle
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + 10, w * 0.42, Math.PI, 0);
     ctx.stroke();
-  }
+    // sheen
+    ctx.fillStyle = 'rgba(255, 247, 224, 0.7)';
+    ctx.fillRect(x + 12, y + 20, 4, h - 24);
+    // big "H2O" mark
+    ctx.fillStyle = '#1a0f3a';
+    ctx.font = 'bold 12px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('H₂O', x + w / 2, y + h - 10);
+    ctx.restore();
+  });
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Audio (lightweight WebAudio bleeps)
-  // ───────────────────────────────────────────────────────────────────────
-  let audioCtx = null;
-  function ac() {
-    if (!audioCtx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) audioCtx = new AC();
+  Sprite.registerFallback('truck', (x, y, w, h, opts) => {
+    drawTruckProcedural(x, y, w, h, opts);
+  });
+
+  // ─── Procedural truck + Rizzle ────────────────────────────────────────
+  function drawTruckProcedural(x, y, w, h, opts) {
+    const blink = !!opts.blink;
+    const airborne = !!opts.airborne;
+
+    // chassis drop shadow on truck
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    rrect(x + 6, y + h - 6, w - 12, 8, 4); ctx.fill();
+
+    // CARGO TANK (left two-thirds)
+    ctx.fillStyle = '#d94028';
+    rrect(x + 4, y + 28, w * 0.62, h - 34, 8); ctx.fill();
+    strokeShape('#1a0f3a', 3);
+    // ladder on top
+    ctx.strokeStyle = '#fff7e0'; ctx.lineWidth = 2.5;
+    ctx.strokeRect(x + 12, y + 22, w * 0.55, 7);
+    for (let lx = x + 14; lx < x + w * 0.62; lx += 10) {
+      ctx.beginPath(); ctx.moveTo(lx, y + 22); ctx.lineTo(lx, y + 29); ctx.stroke();
     }
-    return audioCtx;
-  }
-  function tone(freq, dur, type = 'square', vol = 0.06, slideTo = null) {
-    const c = ac(); if (!c) return;
-    const t = c.currentTime;
-    const o = c.createOscillator();
-    const g = c.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    if (slideTo != null) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(c.destination);
-    o.start(t); o.stop(t + dur + 0.02);
-  }
-  function sfxJump() { tone(440, 0.12, 'square', 0.05, 880); }
-  function sfxPickup(f) { tone(f || 720, 0.10, 'triangle', 0.07, (f || 720) * 1.6); }
-  function sfxSmash() {
-    tone(180, 0.18, 'sawtooth', 0.08, 60);
-    tone(900, 0.08, 'square',   0.05, 220);
+    // gold reflective stripe
+    ctx.fillStyle = '#ffd24a';
+    ctx.fillRect(x + 6, y + h * 0.55, w * 0.6, 6);
+
+    // CAB (right side)
+    ctx.fillStyle = '#ff5a3c';
+    rrect(x + w * 0.56, y + 30, w * 0.42, h - 38, 10); ctx.fill();
+    strokeShape('#1a0f3a', 3);
+    // cab side window
+    ctx.fillStyle = '#a8e6ff';
+    rrect(x + w * 0.62, y + 36, w * 0.32, 18, 4); ctx.fill();
+    strokeShape('#1a0f3a', 2.5);
+
+    // RIZZLE — sits in the cab, head pokes WAY above
+    const capCx = x + w * 0.78;
+    const capCy = y + 4 - (airborne ? 2 : 0);
+    drawRizzle(capCx, capCy, 38, { blink, arm: 'wheel' });
+
+    // siren on cab roof
+    const sirenOn = (performance.now() / 200) % 2 < 1;
+    ctx.fillStyle = sirenOn ? '#ffe24c' : '#4ec5ff';
+    rrect(x + w * 0.56, y + 22, 14, 8, 2); ctx.fill();
+    strokeShape('#1a0f3a', 1.5);
+
+    // bumper
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(x + w - 8, y + h - 22, 8, 10);
+
+    // wheels
+    drawWheel(x + 30,      y + h - 2, 16);
+    drawWheel(x + w - 36,  y + h - 2, 16);
   }
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Main loop
-  // ───────────────────────────────────────────────────────────────────────
+  function drawWheel(cx, cy, r) {
+    ctx.save();
+    ctx.fillStyle = '#1a0f3a';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff7e0';
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2); ctx.fill();
+    const spin = state.bg.road * 0.08;
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const a = spin + i * (Math.PI / 3);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r * 0.1, cy + Math.sin(a) * r * 0.1);
+      ctx.lineTo(cx + Math.cos(a) * r * 0.45, cy + Math.sin(a) * r * 0.45);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // The hero capybara. Procedural — replace with a sprite later via
+  // Sprite.registerImage('rizzle', '...') and a new fallback hook if needed.
+  function drawRizzle(cx, cy, s, opts) {
+    opts = opts || {};
+    const blink = !!opts.blink;
+    const outline = '#1a0f3a';
+    const skin = '#b4884f';
+    const beard = '#fff7e0';
+
+    ctx.save();
+
+    // HEAD (squashed wide ellipse)
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, s * 0.82, s * 0.74, 0, 0, Math.PI * 2);
+    ctx.fill();
+    strokeShape(outline, Math.max(1.6, s * 0.05));
+
+    // EARS
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.ellipse(cx - s * 0.66, cy - s * 0.48, s * 0.2, s * 0.16, -0.3, 0, Math.PI * 2); ctx.fill();
+    strokeShape(outline, Math.max(1.2, s * 0.04));
+    ctx.beginPath(); ctx.ellipse(cx + s * 0.66, cy - s * 0.48, s * 0.2, s * 0.16, 0.3, 0, Math.PI * 2); ctx.fill();
+    strokeShape(outline, Math.max(1.2, s * 0.04));
+    ctx.fillStyle = '#7a5230';
+    ctx.beginPath(); ctx.ellipse(cx - s * 0.64, cy - s * 0.46, s * 0.09, s * 0.07, -0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + s * 0.64, cy - s * 0.46, s * 0.09, s * 0.07, 0.3, 0, Math.PI * 2); ctx.fill();
+
+    // BEARD
+    ctx.fillStyle = beard;
+    ctx.beginPath();
+    ctx.moveTo(cx - s * 0.58, cy + s * 0.05);
+    ctx.bezierCurveTo(cx - s * 0.8,  cy + s * 0.6, cx - s * 0.32, cy + s * 1.0, cx, cy + s * 0.9);
+    ctx.bezierCurveTo(cx + s * 0.32, cy + s * 1.0, cx + s * 0.8,  cy + s * 0.6, cx + s * 0.58, cy + s * 0.05);
+    ctx.bezierCurveTo(cx + s * 0.32, cy + s * 0.2, cx - s * 0.32, cy + s * 0.2, cx - s * 0.58, cy + s * 0.05);
+    ctx.closePath();
+    ctx.fill();
+    strokeShape(outline, Math.max(1.4, s * 0.05));
+    // beard wisps
+    ctx.strokeStyle = '#d6c9a0'; ctx.lineWidth = Math.max(1, s * 0.025);
+    ctx.beginPath();
+    ctx.moveTo(cx - s * 0.3, cy + s * 0.38); ctx.lineTo(cx - s * 0.2, cy + s * 0.75);
+    ctx.moveTo(cx,            cy + s * 0.42); ctx.lineTo(cx + s * 0.04, cy + s * 0.9);
+    ctx.moveTo(cx + s * 0.3,  cy + s * 0.38); ctx.lineTo(cx + s * 0.25, cy + s * 0.75);
+    ctx.stroke();
+
+    // EYES (sclera bumps poking through beard)
+    ctx.fillStyle = '#dff3b0';
+    ctx.beginPath(); ctx.arc(cx - s * 0.3, cy - s * 0.05, s * 0.2, 0, Math.PI * 2); ctx.fill();
+    strokeShape(outline, Math.max(1.2, s * 0.04));
+    ctx.beginPath(); ctx.arc(cx + s * 0.3, cy - s * 0.05, s * 0.22, 0, Math.PI * 2); ctx.fill();
+    strokeShape(outline, Math.max(1.2, s * 0.04));
+    // half-closed left eye (sleepy/derpy)
+    ctx.fillStyle = skin;
+    ctx.fillRect(cx - s * 0.48, cy - s * 0.24, s * 0.36, s * 0.18);
+    // pupils — blink hides them
+    if (!blink) {
+      ctx.fillStyle = outline;
+      ctx.beginPath(); ctx.arc(cx - s * 0.30, cy + s * 0.00, s * 0.05, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + s * 0.32, cy - s * 0.05, s * 0.07, 0, Math.PI * 2); ctx.fill();
+      // gleam
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(cx + s * 0.34, cy - s * 0.08, s * 0.025, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // blink line
+      ctx.strokeStyle = outline; ctx.lineWidth = Math.max(2, s * 0.06);
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.40, cy - s * 0.03); ctx.lineTo(cx - s * 0.20, cy - s * 0.03);
+      ctx.moveTo(cx + s * 0.20, cy - s * 0.05); ctx.lineTo(cx + s * 0.42, cy - s * 0.05);
+      ctx.stroke();
+    }
+
+    // Mouth corner
+    ctx.fillStyle = outline;
+    ctx.fillRect(cx - s * 0.04, cy + s * 0.18, s * 0.08, s * 0.04);
+
+    // HELMET
+    drawFireHelmet(cx, cy, s, outline);
+
+    // ARMS gripping wheel
+    if (opts.arm === 'wheel') {
+      ctx.strokeStyle = outline;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(2, s * 0.17);
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.35, cy + s * 0.55);
+      ctx.quadraticCurveTo(cx, cy + s * 0.98, cx + s * 0.55, cy + s * 0.88);
+      ctx.stroke();
+      ctx.fillStyle = '#1a0f3a';
+      ctx.beginPath(); ctx.arc(cx + s * 0.6, cy + s * 0.88, s * 0.18, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff7e0';
+      ctx.beginPath(); ctx.arc(cx + s * 0.6, cy + s * 0.88, s * 0.08, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawFireHelmet(cx, cy, s, outline) {
+    ctx.save();
+    // back brim
+    ctx.fillStyle = '#1a0f3a';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - s * 0.38, s * 0.95, s * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // red dome
+    ctx.fillStyle = '#ff3a2a';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - s * 0.55, s * 0.78, s * 0.55, 0, Math.PI, 0);
+    ctx.fill();
+    strokeShape(outline, Math.max(1.4, s * 0.05));
+    // front bill
+    ctx.fillStyle = '#ff3a2a';
+    ctx.beginPath();
+    ctx.moveTo(cx + s * 0.15, cy - s * 0.42);
+    ctx.quadraticCurveTo(cx + s * 1.15, cy - s * 0.6, cx + s * 1.1, cy - s * 0.18);
+    ctx.quadraticCurveTo(cx + s * 0.6, cy - s * 0.25, cx + s * 0.4, cy - s * 0.32);
+    ctx.closePath(); ctx.fill();
+    strokeShape(outline, Math.max(1.4, s * 0.05));
+    // yellow shield
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.moveTo(cx - s * 0.18, cy - s * 0.95);
+    ctx.lineTo(cx + s * 0.18, cy - s * 0.95);
+    ctx.lineTo(cx + s * 0.22, cy - s * 0.7);
+    ctx.lineTo(cx,            cy - s * 0.6);
+    ctx.lineTo(cx - s * 0.22, cy - s * 0.7);
+    ctx.closePath(); ctx.fill();
+    strokeShape(outline, Math.max(1.1, s * 0.04));
+    // bee mark
+    ctx.fillStyle = outline;
+    ctx.beginPath(); ctx.arc(cx, cy - s * 0.78, s * 0.05, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(cx - s * 0.05, cy - s * 0.83, s * 0.1, s * 0.02);
+    ctx.restore();
+  }
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   COSMETICS: register layered cosmetic slots ready for future content.
+  //   Today, nothing is added — the world stays clean. Later, drop in
+  //   capybara billboards / sky parade / sidewalk easter eggs here:
+  //
+  //     Cosmetics.add({
+  //       layer: 'sky', x: 200, y: 80, vx: -20, parallax: 0,
+  //       draw: ({x, y, phase}) => { drawCapybaraBalloon(x, y, phase); }
+  //     });
+  //
+  //   The game loop already calls Cosmetics.update + draw on every layer;
+  //   adding content is purely additive.
+  // ═════════════════════════════════════════════════════════════════════
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   MAIN LOOP
+  // ═════════════════════════════════════════════════════════════════════
   let lastT = performance.now();
   function frame(now) {
     let dt = (now - lastT) / 1000;
     lastT = now;
-    if (dt > 0.05) dt = 0.05; // clamp big jumps (tab switches, etc.)
+    if (dt > 0.05) dt = 0.05;
     try {
       update(dt);
       render();
     } catch (err) {
-      // Never let a single bad frame freeze the game silently.
       // eslint-disable-next-line no-console
       console.error('[CapyRizzle] frame error:', err);
     }
     requestAnimationFrame(frame);
   }
 
-  // Initial UI state
-  elBest.textContent = 'BEST ' + best + ' m';
+  // Boot
+  elBest.textContent = 'BEST ' + state.best + ' m';
   setMode('title');
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();
