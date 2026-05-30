@@ -39,8 +39,12 @@
   const elBest       = $('best');
   const elBoost      = $('boost');
   const elBoostLabel = $('boostLabel');
+  const elCombo      = $('combo');
+  const elComboPop   = $('comboPop');
+  const elMilestone  = $('milestonePop');
   const elFinal      = $('finalScore');
   const elFinalSmash = $('finalSmashed');
+  const elFinalCombo = $('finalCombo');
   const elFinalBest  = $('finalBest');
   const elNewBest    = $('newBest');
   const btnStart     = $('start');
@@ -87,6 +91,19 @@
   const HIT_FREEZE   = 0.18;       // freeze frame on hit
   const HIT_FLASH    = 0.10;       // white flash duration
   const HIT_DELAY    = 0.55;       // delay before showing game-over overlay
+
+  // Combo
+  const COMBO_MAX = 20;
+  const COMBO_LEVELS = [1, 3, 5, 8, 12, 16, 20]; // thresholds for the big pop
+  const NEAR_MISS_PX = 38;          // clearance under which it counts as CLOSE!
+  const NEAR_MISS_POINTS = 10;
+
+  // Slow-mo on near-miss
+  const SLOWMO_FACTOR   = 0.45;
+  const SLOWMO_TIME     = 0.18;
+
+  // Milestones
+  const MILESTONE_M = 250;
 
   const HIGHSCORE_KEY = 'capyrizzlerush_best_v5';
   const TUTORIAL_KEY  = 'capyrizzlerush_tut_v5';
@@ -285,6 +302,16 @@
     // run stats for the game-over screen
     firesSmashed: 0,
     watersGrabbed: 0,
+    nearMisses: 0,
+    combo: 1,
+    bestCombo: 1,           // best combo this run
+    comboLevelShown: 0,     // last threshold index we celebrated
+
+    // brief slow-mo on near-miss (timer is decremented in REAL time)
+    slowMo: 0,
+
+    // milestone tracking
+    nextMilestone: MILESTONE_M,
 
     // truck
     truck: {
@@ -391,6 +418,12 @@
     state.boostUsed = 0;
     state.firesSmashed = 0;
     state.watersGrabbed = 0;
+    state.nearMisses = 0;
+    state.combo = 1;
+    state.bestCombo = 1;
+    state.comboLevelShown = 0;
+    state.slowMo = 0;
+    state.nextMilestone = MILESTONE_M;
 
     Object.assign(state.truck, {
       x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
@@ -430,6 +463,7 @@
     state.deathT    = HIT_DELAY;
     state.shake.mag = Math.max(state.shake.mag, 18);
     state.shake.time = Math.max(state.shake.time, 0.45);
+    resetCombo();
     // big particle burst
     spawnCrash(state.truck.x + TRUCK_W * 0.5, state.truck.y + TRUCK_H * 0.4);
     sfx.crash();
@@ -447,28 +481,118 @@
     }
     elFinal.textContent      = String(final);
     elFinalSmash.textContent = String(state.firesSmashed);
+    elFinalCombo.textContent = '×' + state.bestCombo;
     elFinalBest.textContent  = String(state.best);
     elNewBest.classList.toggle('hidden', !newBest);
     setMode('gameover');
   }
 
   // ═════════════════════════════════════════════════════════════════════
-  //   SPAWNING
+  //   SPAWNING — authored patterns instead of random obstacles
+  //   Each pattern is a list of items with dx (px from leading edge),
+  //   plus its total span so the spawn timer can give breathing room.
+  //
+  //   Variants are visual-only; the collider is always a fire-shaped box.
   // ═════════════════════════════════════════════════════════════════════
-  function spawnObstacle() {
-    // Single kind in v5: fire. Sizes vary slightly for visual interest.
-    const big = Math.random() < 0.25;
-    const w = big ? 90 : 64;
-    const h = big ? 100 : 88;
-    state.obstacles.push({
-      x: W + 80,
-      y: GROUND_Y - h,
-      w, h,
-      kind: 'fire',
-      phase: Math.random() * Math.PI * 2,
-    });
+  const FIRE_VARIANTS = {
+    // name        w     h    color1     color2     core
+    torch:     { w: 60,  h: 92,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
+    tall:      { w: 56,  h: 108, color1: '#ff3a2a', color2: '#ffd24a', core: '#fff7e0' },
+    blue:      { w: 56,  h: 96,  color1: '#4ec5ff', color2: '#a8e6ff', core: '#fff7e0' },
+    pit:       { w: 150, h: 56,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
+    short:     { w: 62,  h: 70,  color1: '#ff8a3c', color2: '#ffd24a', core: '#fff7e0' },
+  };
+
+  const PATTERNS = [
+    // ── Easy (phase 1) ──
+    { name: 'single',     phase: 1, weight: 4, items: [{ kind: 'fire', dx: 0,   variant: 'torch' }] },
+    { name: 'singleShort',phase: 1, weight: 2, items: [{ kind: 'fire', dx: 0,   variant: 'short' }] },
+    { name: 'reward',     phase: 1, weight: 2, items: [{ kind: 'water', dx: 0, lift: 110 }] },
+
+    // ── Medium (phase 2) ──
+    { name: 'tall',       phase: 2, weight: 3, items: [{ kind: 'fire', dx: 0,   variant: 'tall' }] },
+    { name: 'blue',       phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0,   variant: 'blue' }] },
+    { name: 'pit',        phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0,   variant: 'pit'  }] },
+    { name: 'double',     phase: 2, weight: 3, items: [
+        { kind: 'fire', dx: 0,   variant: 'short' },
+        { kind: 'fire', dx: 150, variant: 'short' },
+    ]},
+    { name: 'gauntlet',   phase: 2, weight: 2, items: [
+        { kind: 'fire',  dx: 0,   variant: 'torch' },
+        { kind: 'water', dx: 130, lift: 120 },
+    ]},
+
+    // ── Hard (phase 3) ──
+    { name: 'triple',     phase: 3, weight: 2, items: [
+        { kind: 'fire', dx: 0,   variant: 'short' },
+        { kind: 'fire', dx: 140, variant: 'short' },
+        { kind: 'fire', dx: 280, variant: 'short' },
+    ]},
+    { name: 'pit+tall',   phase: 3, weight: 2, items: [
+        { kind: 'fire', dx: 0,   variant: 'pit' },
+        { kind: 'fire', dx: 240, variant: 'tall' },
+    ]},
+    { name: 'rewardRun',  phase: 3, weight: 1, items: [
+        { kind: 'fire',  dx: 0,   variant: 'torch' },
+        { kind: 'water', dx: 140, lift: 130 },
+        { kind: 'fire',  dx: 280, variant: 'torch' },
+    ]},
+  ];
+
+  function currentPhase() {
+    if (state.runTime < 25) return 1;
+    if (state.runTime < 60) return 2;
+    return 3;
   }
-  function spawnPickup() {
+
+  function pickPattern() {
+    const phase = currentPhase();
+    const candidates = PATTERNS.filter(p => p.phase <= phase);
+    let total = 0;
+    for (const p of candidates) total += p.weight;
+    let r = Math.random() * total;
+    for (const p of candidates) {
+      if ((r -= p.weight) <= 0) return p;
+    }
+    return candidates[0];
+  }
+
+  function spawnPattern() {
+    const p = pickPattern();
+    let span = 0;
+    for (const it of p.items) {
+      const baseX = W + 80 + it.dx;
+      if (it.kind === 'fire') {
+        const v = FIRE_VARIANTS[it.variant] || FIRE_VARIANTS.torch;
+        const w = v.w, h = v.h;
+        state.obstacles.push({
+          x: baseX,
+          y: GROUND_Y - h,
+          w, h,
+          kind: 'fire',
+          variant: it.variant || 'torch',
+          phase: Math.random() * Math.PI * 2,
+          passed: false,
+        });
+        if (it.dx + w > span) span = it.dx + w;
+      } else if (it.kind === 'water') {
+        const w = 48, h = 52;
+        const lift = it.lift != null ? it.lift : rand(PICKUP_LIFT_MIN, PICKUP_LIFT_MAX);
+        state.pickups.push({
+          x: baseX, y: GROUND_Y - h - lift, w, h,
+          kind: 'water',
+          phase: Math.random() * Math.PI * 2,
+        });
+        if (it.dx + w > span) span = it.dx + w;
+      }
+    }
+    // Add breathing room after the pattern based on speed/phase.
+    const phase = currentPhase();
+    const breathe = phase === 1 ? rand(540, 760) : phase === 2 ? rand(420, 620) : rand(360, 540);
+    state.nextObstacleDist = span + breathe;
+  }
+
+  function spawnLooseWater() {
     const w = 48, h = 52;
     const y = GROUND_Y - h - rand(PICKUP_LIFT_MIN, PICKUP_LIFT_MAX);
     state.pickups.push({
@@ -544,6 +668,53 @@
   function shake(mag, dur) {
     state.shake.mag  = Math.max(state.shake.mag, mag);
     state.shake.time = Math.max(state.shake.time, dur);
+  }
+
+  // ── Combo ──────────────────────────────────────────────────────────
+  function addCombo(n) {
+    const before = state.combo;
+    state.combo = Math.min(COMBO_MAX, state.combo + n);
+    if (state.combo > state.bestCombo) state.bestCombo = state.combo;
+    // celebrate threshold jumps with a screen pop + sound
+    for (let i = state.comboLevelShown + 1; i < COMBO_LEVELS.length; i++) {
+      if (state.combo >= COMBO_LEVELS[i]) {
+        state.comboLevelShown = i;
+        showComboPop('×' + COMBO_LEVELS[i] + '!');
+        state.flashWhite = Math.max(state.flashWhite, 0.08);
+        shake(5, 0.16);
+        // gentle ascending bleep per threshold
+        blip(440 + i * 80, 0.16, 'triangle', 0.06, 880 + i * 80);
+      }
+    }
+    if (state.combo !== before) bumpComboPill();
+  }
+  function resetCombo() {
+    state.combo = 1;
+    state.comboLevelShown = 0;
+  }
+  function bumpComboPill() {
+    elCombo.classList.remove('bumped');
+    // force reflow so the animation can restart
+    void elCombo.offsetWidth;
+    elCombo.classList.add('bumped');
+    setTimeout(() => elCombo.classList.remove('bumped'), 140);
+  }
+  function showComboPop(text) {
+    elComboPop.textContent = text;
+    elComboPop.classList.remove('hidden');
+    // restart animation
+    elComboPop.style.animation = 'none';
+    void elComboPop.offsetWidth;
+    elComboPop.style.animation = '';
+    setTimeout(() => elComboPop.classList.add('hidden'), 750);
+  }
+  function showMilestone(text) {
+    elMilestone.textContent = text;
+    elMilestone.classList.remove('hidden');
+    elMilestone.style.animation = 'none';
+    void elMilestone.offsetWidth;
+    elMilestone.style.animation = '';
+    setTimeout(() => elMilestone.classList.add('hidden'), 1100);
   }
 
   // ═════════════════════════════════════════════════════════════════════
@@ -646,14 +817,10 @@
       state.nextPickupDist   -= worldSpeed * dt;
 
       if (state.nextObstacleDist <= 0) {
-        spawnObstacle();
-        const t01 = clamp((state.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED), 0, 1);
-        const minGap = lerp(OBSTACLE_GAP_MIN_EARLY, OBSTACLE_GAP_MIN_LATE, t01);
-        const maxGap = lerp(OBSTACLE_GAP_MAX_EARLY, OBSTACLE_GAP_MAX_LATE, t01);
-        state.nextObstacleDist = rand(minGap, maxGap);
+        spawnPattern();   // sets state.nextObstacleDist internally
       }
       if (state.nextPickupDist <= 0) {
-        spawnPickup();
+        spawnLooseWater();
         state.nextPickupDist = rand(PICKUP_GAP_MIN, PICKUP_GAP_MAX);
       }
     }
@@ -673,10 +840,12 @@
       if (hit) {
         if (state.boosting) {
           state.firesSmashed += 1;
-          state.score    += 25;
-          state.distance += 250;
+          addCombo(1);
+          const pts = 25 * state.combo;
+          state.score    += pts;
+          state.distance += pts * 10;
           spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 24, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']);
-          popup('SMASH +25', o.x + o.w / 2, o.y - 4, '#ffe24c');
+          popup('SMASH +' + pts, o.x + o.w / 2, o.y - 4, '#ffe24c');
           shake(8, 0.18);
           sfx.smash();
           state.obstacles.splice(i, 1);
@@ -684,6 +853,29 @@
         } else {
           die('fire');
           return;
+        }
+      }
+      // Near-miss / clean-jump credit: when the obstacle's trailing edge
+      // crosses the truck's leading edge AND we cleared it.
+      if (!o.passed && o.x + o.w < state.truck.x + 18) {
+        o.passed = true;
+        const clearance = o.y - (state.truck.y + TRUCK_H); // px above obstacle top
+        if (clearance >= 0) {
+          // It's a clean jump. Always +1 combo.
+          addCombo(1);
+          if (clearance < NEAR_MISS_PX) {
+            // CLOSE! near-miss bonus
+            state.nearMisses += 1;
+            const pts = NEAR_MISS_POINTS * state.combo;
+            state.score    += pts;
+            state.distance += pts * 10;
+            popup('CLOSE! +' + pts, o.x + o.w * 0.5 + 14, o.y - 8, '#ffe24c');
+            spawnSpark(state.truck.x + TRUCK_W * 0.4, state.truck.y + TRUCK_H, 10,
+                       ['#ffe24c', '#fff7e0', '#ffb14c']);
+            state.slowMo = Math.max(state.slowMo, SLOWMO_TIME);
+            shake(3, 0.1);
+            sfx.pickup();
+          }
         }
       }
       if (o.x + o.w < -60) state.obstacles.splice(i, 1);
@@ -698,8 +890,13 @@
       if (!p.taken && aabb(hb.x, hb.y, hb.w, hb.h, p.x, p.y, p.w, p.h)) {
         p.taken = true;
         state.watersGrabbed += 1;
+        addCombo(1);
         const wasBoosting = state.boostTime > 0;
         state.boostTime = Math.min(BOOST_MAX_TIME, state.boostTime + BOOST_TIME_PER);
+        // small score from water too, multiplied by combo
+        const pts = 5 * state.combo;
+        state.score    += pts;
+        state.distance += pts * 10;
         spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 14, ['#4ec5ff', '#a8e6ff', '#fff7e0']);
         popup(wasBoosting ? '+SIREN' : 'SIREN!', p.x + p.w / 2, p.y, '#a8e6ff');
         state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.10);
@@ -728,9 +925,25 @@
     if (state.hint.jumpDone)  state.hint.jumpA  = Math.max(0, state.hint.jumpA  - dt * 1.4);
     if (state.hint.waterDone) state.hint.waterA = Math.max(0, state.hint.waterA - dt * 1.4);
 
+    // ── Distance milestones ──────────────────────────────────────────
+    while (state.score >= state.nextMilestone) {
+      const m = state.nextMilestone;
+      state.nextMilestone += MILESTONE_M;
+      addCombo(1);
+      const pts = 50 * state.combo;
+      state.score    += pts;
+      state.distance += pts * 10;
+      showMilestone(m + 'm — +' + pts);
+      state.flashWhite = Math.max(state.flashWhite, 0.06);
+      shake(4, 0.18);
+      blip(680, 0.20, 'triangle', 0.06, 1320);
+    }
+
     // ── HUD ──────────────────────────────────────────────────────────
     elScore.textContent = state.score + ' m';
-    elBest.textContent  = 'BEST ' + state.best + ' m';
+    elBest.textContent  = 'BEST ' + Math.max(state.best, state.score) + ' m';
+    elCombo.textContent = '×' + state.combo;
+    elCombo.classList.toggle('hot', state.combo >= 8);
     elBoost.style.width = clamp((state.boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%';
     elBoostLabel.textContent = state.boosting ? 'SIREN!' : 'SIREN';
   }
@@ -800,6 +1013,19 @@
     drawHints();
 
     ctx.restore();
+
+    // Slow-mo cool vignette (drawn outside the shake transform)
+    if (state.slowMo > 0) {
+      const a = clamp(state.slowMo / SLOWMO_TIME, 0, 1);
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      const g = ctx.createRadialGradient(W * 0.5, H * 0.5, H * 0.3, W * 0.5, H * 0.5, H * 0.95);
+      g.addColorStop(0, 'rgba(168, 230, 255, 0)');
+      g.addColorStop(1, `rgba(78, 197, 255, ${0.35 * a})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
 
     // White-flash overlay
     if (state.flashWhite > 0) {
@@ -919,7 +1145,7 @@
   // ─── Obstacles & pickups ──────────────────────────────────────────────
   function drawObstacles() {
     for (const o of state.obstacles) {
-      Sprite.draw('fire', o.x, o.y, o.w, o.h, { phase: o.phase });
+      Sprite.draw('fire', o.x, o.y, o.w, o.h, { phase: o.phase, variant: o.variant });
     }
   }
   function drawPickups() {
@@ -1059,7 +1285,17 @@
   //   loaded PNGs later with zero code changes outside this block.
   // ═════════════════════════════════════════════════════════════════════
   Sprite.registerFallback('fire', (x, y, w, h, opts) => {
-    const phase = opts.phase || 0;
+    const variant = opts.variant || 'torch';
+    const phase   = opts.phase   || 0;
+    const v = FIRE_VARIANTS[variant] || FIRE_VARIANTS.torch;
+    if (variant === 'pit') {
+      drawFirePitSprite(x, y, w, h, phase, v);
+    } else {
+      drawFlameSprite(x, y, w, h, phase, v, variant);
+    }
+  });
+
+  function drawFlameSprite(x, y, w, h, phase, v, variant) {
     const wob = Math.sin(phase) * 4;
     ctx.save();
     // base shadow
@@ -1067,30 +1303,83 @@
     ctx.beginPath();
     ctx.ellipse(x + w / 2, y + h + 3, w * 0.55, 6, 0, 0, Math.PI * 2);
     ctx.fill();
+    // little log base for upright flames (sells it as "thing burning")
+    ctx.fillStyle = '#1a0f3a';
+    rrect(x + 6, y + h - 10, w - 12, 10, 4); ctx.fill();
+    ctx.fillStyle = '#5a3a1a';
+    rrect(x + 10, y + h - 8, w - 20, 5, 2); ctx.fill();
     // outer flame
-    ctx.fillStyle = '#ff5a3c';
+    ctx.fillStyle = v.color1;
     ctx.beginPath();
-    ctx.moveTo(x + w / 2, y + h);
+    ctx.moveTo(x + w / 2, y + h - 6);
     ctx.bezierCurveTo(x - 6 + wob, y + h * 0.5,  x + w * 0.18, y + h * 0.12, x + w / 2, y);
-    ctx.bezierCurveTo(x + w * 0.82, y + h * 0.12, x + w + 6 - wob, y + h * 0.5,  x + w / 2, y + h);
+    ctx.bezierCurveTo(x + w * 0.82, y + h * 0.12, x + w + 6 - wob, y + h * 0.5,  x + w / 2, y + h - 6);
     ctx.closePath();
     ctx.fill();
     strokeShape('#1a0f3a', 3);
     // inner flame
-    ctx.fillStyle = '#ffb14c';
+    ctx.fillStyle = v.color2;
     ctx.beginPath();
-    ctx.moveTo(x + w / 2, y + h);
+    ctx.moveTo(x + w / 2, y + h - 6);
     ctx.bezierCurveTo(x + 10,    y + h * 0.6,  x + w * 0.3, y + h * 0.25, x + w / 2, y + h * 0.18);
-    ctx.bezierCurveTo(x + w * 0.7, y + h * 0.25, x + w - 10, y + h * 0.6,  x + w / 2, y + h);
+    ctx.bezierCurveTo(x + w * 0.7, y + h * 0.25, x + w - 10, y + h * 0.6,  x + w / 2, y + h - 6);
     ctx.closePath();
     ctx.fill();
     // hot core
-    ctx.fillStyle = '#ffe9a8';
+    ctx.fillStyle = v.core;
     ctx.beginPath();
     ctx.ellipse(x + w / 2, y + h * 0.55, w * 0.18, h * 0.25, 0, 0, Math.PI * 2);
     ctx.fill();
+    // tall variant gets extra wisp on top
+    if (variant === 'tall') {
+      ctx.fillStyle = v.core;
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2 + Math.sin(phase * 1.3) * 4, y - 6, w * 0.16, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     ctx.restore();
-  });
+  }
+
+  function drawFirePitSprite(x, y, w, h, phase, v) {
+    ctx.save();
+    // base shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + h + 4, w * 0.6, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // pit rim
+    ctx.fillStyle = '#1a0f3a';
+    rrect(x, y + h - 14, w, 14, 6); ctx.fill();
+    ctx.fillStyle = '#5a3a1a';
+    rrect(x + 6, y + h - 12, w - 12, 8, 4); ctx.fill();
+    // row of flames across
+    const count = Math.max(3, Math.floor(w / 36));
+    for (let i = 0; i < count; i++) {
+      const cx = x + 16 + i * ((w - 32) / Math.max(1, count - 1));
+      const wob = Math.sin(phase + i) * 3;
+      const flameH = 32 + Math.sin(phase * 1.4 + i) * 4;
+      // outer
+      ctx.fillStyle = v.color1;
+      ctx.beginPath();
+      ctx.moveTo(cx, y + h - 14);
+      ctx.bezierCurveTo(cx - 14 + wob, y + h - 30, cx - 8, y + h - 50, cx, y + h - 14 - flameH);
+      ctx.bezierCurveTo(cx + 8, y + h - 50, cx + 14 - wob, y + h - 30, cx, y + h - 14);
+      ctx.closePath();
+      ctx.fill();
+      strokeShape('#1a0f3a', 2);
+      // inner
+      ctx.fillStyle = v.color2;
+      ctx.beginPath();
+      ctx.moveTo(cx, y + h - 14);
+      ctx.bezierCurveTo(cx - 6, y + h - 30, cx - 4, y + h - 42, cx, y + h - 18 - flameH * 0.6);
+      ctx.bezierCurveTo(cx + 4, y + h - 42, cx + 6, y + h - 30, cx, y + h - 14);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 
   Sprite.registerFallback('water', (x, y, w, h) => {
     ctx.save();
@@ -1355,8 +1644,14 @@
     let dt = (now - lastT) / 1000;
     lastT = now;
     if (dt > 0.05) dt = 0.05;
+    // slow-mo: gameplay dt is scaled down, but slowMo timer decrements in real time
+    let gameDt = dt;
+    if (state.slowMo > 0) {
+      state.slowMo = Math.max(0, state.slowMo - dt);
+      gameDt = dt * SLOWMO_FACTOR;
+    }
     try {
-      update(dt);
+      update(gameDt);
       render();
     } catch (err) {
       // eslint-disable-next-line no-console
