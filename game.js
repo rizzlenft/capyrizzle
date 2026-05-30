@@ -30,19 +30,23 @@
   const TRUCK_W  = 130;
   const TRUCK_H  = 80;
   const GRAVITY  = 2400;            // px/s^2
-  const JUMP_V   = -880;            // initial jump velocity
-  const HOLD_HOP_V = -260;          // little extra hop while still rising and holding
-  const FAST_FALL_GAIN = 2200;      // extra gravity while holding after apex
+  const JUMP_V   = -900;            // initial jump velocity
 
-  const BASE_SPEED = 380;           // starting world speed (px/s)
-  const MAX_SPEED  = 1000;
-  const SPEED_RAMP = 1.6;           // speed gained per second of play
+  const BASE_SPEED = 300;           // starting world speed (px/s)
+  const MAX_SPEED  = 980;
+  const SPEED_RAMP = 1.05;          // speed gained per second of play
 
-  const BOOST_MULT = 1.55;
-  const BOOST_DRAIN = 28;           // % per second
-  const BOOST_GAIN_WATER = 28;      // % per pickup
+  const BOOST_MULT = 1.55;          // speed multiplier while boosting
+  const BOOST_TIME_PER_WATER = 2.5; // seconds of boost per water pickup
+  const BOOST_MAX_TIME = 6.0;       // cap total boost time
+  const BOOST_SCORE_MULT = 2.0;     // score multiplier while boosting
 
-  const HIGHSCORE_KEY = 'capyrizzlerush_best_v1';
+  const GRACE_TIME = 1.2;           // seconds before first obstacles can spawn
+  // Pickups always hover above ground so they can never be mistaken for enemies.
+  const PICKUP_MIN_LIFT = 70;       // px above ground for a "low" pickup
+  const PICKUP_MAX_LIFT = 170;      // px above ground for a "high" pickup
+
+  const HIGHSCORE_KEY = 'capyrizzlerush_best_v2';
 
   // ───────────────────────────────────────────────────────────────────────
   // State
@@ -68,8 +72,9 @@
   let score = 0;             // distance/10 = meters
   let best = parseInt(localStorage.getItem(HIGHSCORE_KEY) || '0', 10) || 0;
 
-  let boost = 0;             // 0..100
+  let boostTime = 0;         // seconds of boost remaining
   let boosting = false;
+  let runTime = 0;           // seconds since run started (grace + hints)
 
   let shakeT = 0;            // remaining seconds of shake
   let shakeMag = 0;          // current magnitude
@@ -103,6 +108,9 @@
   const rand  = (lo, hi) => lo + Math.random() * (hi - lo);
   const randi = (lo, hi) => Math.floor(rand(lo, hi + 1));
   const pick  = (arr) => arr[(Math.random() * arr.length) | 0];
+  // Positive modulo (JS % keeps the sign of the dividend, which breaks
+  // building heights at negative indices).
+  const pmod  = (n, m) => ((n % m) + m) % m;
 
   function aabb(ax, ay, aw, ah, bx, by, bw, bh) {
     return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
@@ -140,16 +148,19 @@
     speed = BASE_SPEED;
     distance = 0;
     score = 0;
-    boost = 0;
+    boostTime = 0;
     boosting = false;
+    runTime = 0;
 
     obstacles.length = 0;
     pickups.length = 0;
     particles.length = 0;
     popups.length = 0;
 
-    nextSpawnDist = 200;
-    nextPickupDist = 350;
+    // Initial spawn timing uses a grace period so the player isn't
+    // ambushed on frame 1. The first obstacle is also pushed further out.
+    nextSpawnDist = 700;
+    nextPickupDist = 500;
 
     shakeT = 0;
     shakeMag = 0;
@@ -252,15 +263,16 @@
   }
 
   function spawnPickup() {
-    const kind = Math.random() < 0.7 ? 'water' : 'donut';
+    const kind = Math.random() < 0.75 ? 'water' : 'donut';
     let w, h, y;
+    // ALWAYS lifted off the ground so pickups can't be visually
+    // mistaken for ground-level obstacles.
     if (kind === 'water') {
       w = 40; h = 44;
-      // sometimes ground-level, sometimes a little above so jumping helps
-      y = Math.random() < 0.5 ? GROUND_Y - h - 6 : GROUND_Y - h - 70;
+      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT, PICKUP_MIN_LIFT + 40);
     } else {
       w = 46; h = 46;
-      y = GROUND_Y - h - rand(90, 160);
+      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT + 50, PICKUP_MAX_LIFT);
     }
     pickups.push({ x: W + 60, y, w, h, kind, phase: Math.random() * Math.PI * 2 });
   }
@@ -344,6 +356,45 @@
     });
   }
 
+  function spawnBoostFlame() {
+    // fat flame trail behind the truck while boosting
+    for (let n = 0; n < 2; n++) {
+      particles.push({
+        x: truck.x - rand(2, 18),
+        y: truck.y + rand(TRUCK_H * 0.45, TRUCK_H * 0.85),
+        vx: -rand(220, 360),
+        vy: rand(-30, 30),
+        life: 0.35, max: 0.35,
+        color: Math.random() < 0.5 ? '#ffe24c' : '#ff5a3c',
+        size: rand(6, 12),
+        kind: 'flame',
+        grav: 0,
+      });
+    }
+  }
+
+  function spawnSmashBurst(x, y, kind) {
+    const palette = kind === 'fire' || kind === 'firepit'
+      ? ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']
+      : kind === 'hydrant'
+        ? ['#a8e6ff', '#4ec5ff', '#fff7e0', '#cfd6e6']
+        : ['#ffb14c', '#fff7e0', '#1a0f3a', '#ffe24c'];
+    for (let i = 0; i < 26; i++) {
+      const a = rand(-Math.PI, Math.PI);
+      const s = rand(220, 520);
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - 60,
+        life: rand(0.45, 0.8), max: 0.8,
+        color: pick(palette),
+        size: rand(3, 8),
+        kind: 'spark',
+        grav: 700,
+      });
+    }
+  }
+
   // ───────────────────────────────────────────────────────────────────────
   // Update
   // ───────────────────────────────────────────────────────────────────────
@@ -357,28 +408,27 @@
       return;
     }
 
+    runTime += dt;
+
     // ── Speed ramps with distance/time
     speed = Math.min(MAX_SPEED, speed + SPEED_RAMP * dt * 60);
 
-    // ── Boost handling
-    boosting = input.down && boost > 0;
+    // ── Boost handling: auto-activates whenever boostTime > 0
+    boosting = boostTime > 0;
     if (boosting) {
-      boost = Math.max(0, boost - BOOST_DRAIN * dt);
+      boostTime = Math.max(0, boostTime - dt);
+      // continuous boost flame trail
+      spawnBoostFlame();
     }
     const worldSpeed = boosting ? speed * BOOST_MULT : speed;
 
-    distance += worldSpeed * dt;
+    const scoreMult = boosting ? BOOST_SCORE_MULT : 1;
+    distance += worldSpeed * dt * scoreMult;
     score = Math.floor(distance / 10);
 
     // ── Truck physics
     if (!truck.onGround) {
       truck.vy += GRAVITY * dt;
-      // fast-fall if holding while falling
-      if (input.down && truck.vy > 0) truck.vy += FAST_FALL_GAIN * dt;
-      // tiny hop-extend if holding while still rising fast
-      if (input.down && truck.vy < HOLD_HOP_V * 0.5 && truck.vy > JUMP_V * 0.4) {
-        truck.vy -= 60 * dt;
-      }
       truck.y += truck.vy * dt;
       truck.rot += truck.spin * dt;
 
@@ -411,19 +461,22 @@
     truck.squash = lerp(truck.squash, 1, Math.min(1, dt * 10));
     truck.stretch = lerp(truck.stretch, 1, Math.min(1, dt * 10));
 
-    // ── Spawning
-    nextSpawnDist  -= worldSpeed * dt;
-    nextPickupDist -= worldSpeed * dt;
-    if (nextSpawnDist <= 0) {
-      spawnObstacle();
-      // gap shrinks with speed
-      const minGap = lerp(360, 220, (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED));
-      const maxGap = lerp(620, 380, (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED));
-      nextSpawnDist = rand(minGap, maxGap);
-    }
-    if (nextPickupDist <= 0) {
-      spawnPickup();
-      nextPickupDist = rand(420, 900);
+    // ── Spawning (suppressed during the start-of-run grace period)
+    if (runTime > GRACE_TIME) {
+      nextSpawnDist  -= worldSpeed * dt;
+      nextPickupDist -= worldSpeed * dt;
+      if (nextSpawnDist <= 0) {
+        spawnObstacle();
+        // gap shrinks with speed, but stays generous
+        const t = (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
+        const minGap = lerp(440, 280, t);
+        const maxGap = lerp(720, 460, t);
+        nextSpawnDist = rand(minGap, maxGap);
+      }
+      if (nextPickupDist <= 0) {
+        spawnPickup();
+        nextPickupDist = rand(380, 720);
+      }
     }
 
     // ── Move obstacles & collide
@@ -438,10 +491,25 @@
       // collision (slightly forgiving hitbox)
       const hb = truckHitbox();
       const pad = 4;
-      if (aabb(hb.x + pad, hb.y + pad, hb.w - pad * 2, hb.h - pad * 2,
-              o.x + 6, o.y + 6, o.w - 12, o.h - 12)) {
-        gameOver();
-        return;
+      const hit = aabb(
+        hb.x + pad, hb.y + pad, hb.w - pad * 2, hb.h - pad * 2,
+        o.x + 6, o.y + 6, o.w - 12, o.h - 12,
+      );
+      if (hit) {
+        if (boosting) {
+          // smash through it
+          spawnSmashBurst(o.x + o.w / 2, o.y + o.h / 2, o.kind);
+          popup('+SMASH', o.x + o.w / 2, o.y - 4, '#ffe24c');
+          score += 25;
+          distance += 250;
+          shake(8, 0.18);
+          sfxSmash();
+          obstacles.splice(i, 1);
+          continue;
+        } else {
+          gameOver();
+          return;
+        }
       }
       if (o.x + o.w < -40) obstacles.splice(i, 1);
     }
@@ -455,10 +523,12 @@
       if (!p.taken && aabb(hb.x, hb.y, hb.w, hb.h, p.x, p.y, p.w, p.h)) {
         p.taken = true;
         if (p.kind === 'water') {
-          boost = Math.min(100, boost + BOOST_GAIN_WATER);
+          const wasBoosting = boostTime > 0;
+          boostTime = Math.min(BOOST_MAX_TIME, boostTime + BOOST_TIME_PER_WATER);
           spawnPickupBurst(p.x + p.w / 2, p.y + p.h / 2, '#4ec5ff');
-          popup('+SIREN', p.x + p.w / 2, p.y, '#4ec5ff');
+          popup(wasBoosting ? '+SIREN' : 'SIREN ON', p.x + p.w / 2, p.y, '#4ec5ff');
           sfxPickup(660);
+          if (!wasBoosting) shake(4, 0.12);
         } else {
           score += 50;
           distance += 500;
@@ -487,7 +557,7 @@
     // ── HUD
     elScore.textContent = score + ' m';
     elBest.textContent  = 'BEST ' + best + ' m';
-    elBoost.style.width = boost.toFixed(1) + '%';
+    elBoost.style.width = clamp((boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%';
   }
 
   function updateParticles(dt) {
@@ -605,10 +675,10 @@
     ctx.save();
     ctx.fillStyle = '#2a1b6b';
     const baseY = GROUND_Y - 10;
-    const offset = -((bg.far) % 220);
+    const offset = -pmod(bg.far, 220);
     for (let i = -1; i < 7; i++) {
       const x = offset + i * 220;
-      const h = 90 + ((i * 53) % 60);
+      const h = 90 + pmod(i * 53, 60);
       rrect(x, baseY - h, 180, h, 6);
       ctx.fill();
       // windows
@@ -627,10 +697,10 @@
     ctx.save();
     ctx.fillStyle = '#1a0f3a';
     const baseY = GROUND_Y - 2;
-    const offset = -((bg.mid) % 180);
+    const offset = -pmod(bg.mid, 180);
     for (let i = -1; i < 8; i++) {
       const x = offset + i * 180;
-      const h = 60 + ((i * 71) % 80);
+      const h = 60 + pmod(i * 71, 80);
       // building
       rrect(x, baseY - h, 140, h, 4); ctx.fill();
       // roof flag (red — fire dept vibe)
@@ -650,7 +720,7 @@
     // bushes / hydrant silhouettes along the sidewalk
     ctx.save();
     const baseY = GROUND_Y;
-    const offset = -((bg.near) % 260);
+    const offset = -pmod(bg.near, 260);
     for (let i = -1; i < 6; i++) {
       const x = offset + i * 260;
       ctx.fillStyle = '#0e0828';
@@ -678,7 +748,7 @@
     ctx.fillStyle = '#fff7e0';
     const dashW = 60, gap = 40;
     const period = dashW + gap;
-    const offset = -((bg.road) % period);
+    const offset = -pmod(bg.road, period);
     const laneY = GROUND_Y + (H - GROUND_Y) * 0.55;
     for (let x = offset - period; x < W + period; x += period) {
       ctx.fillRect(x, laneY, dashW, 6);
@@ -749,12 +819,15 @@
   function drawHydrant(o) {
     const x = o.x, y = o.y, w = o.w, h = o.h;
     ctx.save();
-    // body
-    ctx.fillStyle = '#ff5a3c';
+    // body — chrome steel so it clearly reads as "object" not "fire"
+    ctx.fillStyle = '#c7cbd6';
     rrect(x + 4, y + 10, w - 8, h - 16, 6); ctx.fill();
     outlineLast(ctx, '#1a0f3a', 2);
-    // top cap
-    ctx.fillStyle = '#ffb14c';
+    // dark stripe
+    ctx.fillStyle = '#5a607a';
+    ctx.fillRect(x + 4, y + h * 0.5, w - 8, 6);
+    // top cap (deep teal)
+    ctx.fillStyle = '#2f6f7a';
     rrect(x + 8, y, w - 16, 14, 4); ctx.fill();
     outlineLast(ctx, '#1a0f3a', 2);
     // side nozzles
@@ -764,6 +837,10 @@
     // base
     ctx.fillStyle = '#1a0f3a';
     ctx.fillRect(x + 2, y + h - 8, w - 4, 8);
+    // tiny highlight
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#fff7e0';
+    ctx.fillRect(x + 10, y + 16, 4, h - 30);
     ctx.restore();
   }
   function drawCone(o) {
@@ -789,9 +866,38 @@
   function drawPickups() {
     for (const p of pickups) {
       const bob = Math.sin(p.phase) * 4;
+      // pulsing glow halo — makes pickups unmistakably distinct
+      // from ground-level obstacles.
+      const haloColor = p.kind === 'water' ? '#4ec5ff' : '#ffe24c';
+      drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, haloColor);
       if (p.kind === 'water') drawWater(p.x, p.y + bob, p.w, p.h);
       else drawDonut(p.x, p.y + bob, p.w, p.h);
     }
+  }
+
+  function drawPickupHalo(cx, cy, w, phase, color) {
+    const pulse = 0.5 + 0.5 * Math.sin(phase * 1.5);
+    const radius = w * (0.95 + pulse * 0.25);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const grd = ctx.createRadialGradient(cx, cy, w * 0.1, cx, cy, radius);
+    grd.addColorStop(0, color);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // tether line to ground so it reads as "floating thing", not "wall"
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + w * 0.4);
+    ctx.lineTo(cx, GROUND_Y - 4);
+    ctx.stroke();
+    ctx.restore();
   }
   function drawWater(x, y, w, h) {
     ctx.save();
@@ -850,16 +956,30 @@
   }
 
   function drawTruck() {
-    ctx.save();
     const cx = truck.x + TRUCK_W * 0.5;
     const cy = truck.y + TRUCK_H * 0.5;
+
+    // boost aura — pulsing radial glow underneath the truck
+    if (boosting) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 60);
+      const r = TRUCK_W * 0.9 * pulse;
+      const grd = ctx.createRadialGradient(cx, cy, 8, cx, cy, r);
+      grd.addColorStop(0, 'rgba(255, 226, 76, 0.85)');
+      grd.addColorStop(0.6, 'rgba(255, 90, 60, 0.45)');
+      grd.addColorStop(1, 'rgba(255, 90, 60, 0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(truck.rot * 0.1);
     ctx.scale(truck.stretch, truck.squash);
     ctx.translate(-cx, -cy);
-
     drawFireTruck(truck.x, truck.y, TRUCK_W, TRUCK_H);
-
     ctx.restore();
   }
 
@@ -1002,7 +1122,8 @@
   // Canvas drawing utilities
   // ───────────────────────────────────────────────────────────────────────
   function rrect(x, y, w, h, r) {
-    r = Math.min(r, w / 2, h / 2);
+    if (w <= 0 || h <= 0) { ctx.beginPath(); return; }
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -1044,9 +1165,10 @@
   }
   function sfxJump() { tone(440, 0.12, 'square', 0.05, 880); }
   function sfxPickup(f) { tone(f || 720, 0.10, 'triangle', 0.07, (f || 720) * 1.6); }
-  // crash plays automatically? — we'll trigger via gameOver
-  const origGameOver = gameOver;
-  // (audio crash via overlay would be too noisy; leaving silent for now)
+  function sfxSmash() {
+    tone(180, 0.18, 'sawtooth', 0.08, 60);
+    tone(900, 0.08, 'square',   0.05, 220);
+  }
 
   // ───────────────────────────────────────────────────────────────────────
   // Main loop
@@ -1056,8 +1178,14 @@
     let dt = (now - lastT) / 1000;
     lastT = now;
     if (dt > 0.05) dt = 0.05; // clamp big jumps (tab switches, etc.)
-    update(dt);
-    render();
+    try {
+      update(dt);
+      render();
+    } catch (err) {
+      // Never let a single bad frame freeze the game silently.
+      // eslint-disable-next-line no-console
+      console.error('[CapyRizzle] frame error:', err);
+    }
     requestAnimationFrame(frame);
   }
 
