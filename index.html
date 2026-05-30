@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="theme-color" content="#2a1b6b" />
+<meta name="game:owner" content="rizzle" />
+<meta name="game:title" content="CapyRizzle Rush" />
+<meta name="game:event" content="capyjam-2026" />
+<title>CapyRizzle Rush</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game" width="960" height="540" aria-label="CapyRizzle Rush game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="hud-row">
+        <div class="hud-pill" id="score">0 m</div>
+        <div class="hud-pill" id="best">BEST 0 m</div>
+      </div>
+      <div class="boost-wrap">
+        <div class="boost-label">SIREN</div>
+        <div class="boost-bar"><div class="boost-fill" id="boost"></div></div>
+      </div>
+    </div>
+
+    <div id="title" class="overlay">
+      <h1 class="logo"><span class="line1">CAPYRIZZLE</span><span class="line2">RUSH</span></h1>
+      <p class="tag">Tap / Space to jump. Hold for siren boost.</p>
+      <button class="bigbtn" id="start">PLAY</button>
+      <p class="credit">a capyjam 2026 entry</p>
+    </div>
+
+    <div id="gameover" class="overlay hidden">
+      <h2 class="gg">WIPEOUT</h2>
+      <p class="final"><span id="finalScore">0</span> m</p>
+      <p class="bestLine">best <span id="finalBest">0</span> m</p>
+      <button class="bigbtn" id="retry">GO AGAIN</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
