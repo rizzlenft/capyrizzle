@@ -26,27 +26,32 @@
   // Constants (tuning)
   // ───────────────────────────────────────────────────────────────────────
   const GROUND_Y = 440;             // top of the road surface
-  const TRUCK_X  = 200;             // truck screen x (stays fixed)
-  const TRUCK_W  = 130;
-  const TRUCK_H  = 80;
-  const GRAVITY  = 2400;            // px/s^2
-  const JUMP_V   = -900;            // initial jump velocity
+  const TRUCK_X  = 180;             // truck screen x (stays fixed)
+  const TRUCK_W  = 150;
+  const TRUCK_H  = 76;
+  const GRAVITY  = 2200;            // px/s^2
+  const JUMP_V   = -880;            // initial jump velocity
 
-  const BASE_SPEED = 300;           // starting world speed (px/s)
-  const MAX_SPEED  = 980;
-  const SPEED_RAMP = 1.05;          // speed gained per second of play
+  const BASE_SPEED = 230;           // starting world speed (px/s) — slower for readability
+  const MAX_SPEED  = 680;
+  const SPEED_RAMP = 0.55;          // speed gained per second of play
 
   const BOOST_MULT = 1.55;          // speed multiplier while boosting
-  const BOOST_TIME_PER_WATER = 2.5; // seconds of boost per water pickup
-  const BOOST_MAX_TIME = 6.0;       // cap total boost time
+  const BOOST_TIME_PER_WATER = 2.6; // seconds of boost per water pickup
+  const BOOST_MAX_TIME = 6.5;       // cap total boost time
   const BOOST_SCORE_MULT = 2.0;     // score multiplier while boosting
 
-  const GRACE_TIME = 1.2;           // seconds before first obstacles can spawn
+  const GRACE_TIME = 2.2;           // seconds before first obstacles can spawn
   // Pickups always hover above ground so they can never be mistaken for enemies.
   const PICKUP_MIN_LIFT = 70;       // px above ground for a "low" pickup
-  const PICKUP_MAX_LIFT = 170;      // px above ground for a "high" pickup
+  const PICKUP_MAX_LIFT = 175;      // px above ground for a "high" pickup
 
-  const HIGHSCORE_KEY = 'capyrizzlerush_best_v2';
+  // Score values
+  const SCORE_RESCUE = 100;
+  const SCORE_ORANGE = 25;
+
+  const HIGHSCORE_KEY = 'capyrizzlerush_best_v3';
+  const TUTORIAL_SEEN_KEY = 'capyrizzlerush_tutorial_seen_v3';
 
   // ───────────────────────────────────────────────────────────────────────
   // State
@@ -75,6 +80,15 @@
   let boostTime = 0;         // seconds of boost remaining
   let boosting = false;
   let runTime = 0;           // seconds since run started (grace + hints)
+  let rescuedCount = 0;      // capybaras rescued this run (stacked on truck)
+  let totalRescued = parseInt(localStorage.getItem('capyrizzlerush_total_rescued') || '0', 10) || 0;
+
+  // Tutorial state — fades hints out after the player has actually done each thing
+  const tutorialSeen = localStorage.getItem(TUTORIAL_SEEN_KEY) === '1';
+  let hintJumpAlpha   = tutorialSeen ? 0 : 1;
+  let hintWaterAlpha  = tutorialSeen ? 0 : 1;
+  let hintJumpDone    = tutorialSeen;
+  let hintWaterDone   = tutorialSeen;
 
   let shakeT = 0;            // remaining seconds of shake
   let shakeMag = 0;          // current magnitude
@@ -83,6 +97,8 @@
   const obstacles = [];
   /** @type {Array<{x:number,y:number,w:number,h:number,kind:string,phase:number,taken?:boolean}>} */
   const pickups = [];
+  /** @type {Array<{x:number,y:number,phase:number,kind:string}>} */
+  const npcs = [];           // background capybara NPCs (waving, hot tubbing)
   /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,max:number,color:string,size:number,kind:string,grav?:number}>} */
   const particles = [];
   /** @type {Array<{x:number,y:number,life:number,max:number,text:string,color:string,vy:number}>} */
@@ -156,18 +172,29 @@
     pickups.length = 0;
     particles.length = 0;
     popups.length = 0;
+    npcs.length = 0;
+    rescuedCount = 0;
 
     // Initial spawn timing uses a grace period so the player isn't
     // ambushed on frame 1. The first obstacle is also pushed further out.
-    nextSpawnDist = 700;
-    nextPickupDist = 500;
+    nextSpawnDist = 900;
+    nextPickupDist = 520;
 
     shakeT = 0;
     shakeMag = 0;
+
+    // Reset hint visibility only if the player hasn't completed the tutorial
+    if (!hintJumpDone)  hintJumpAlpha  = 1;
+    if (!hintWaterDone) hintWaterAlpha = 1;
   }
 
   function startGame() {
     resetRun();
+    // seed a few NPCs immediately so the world feels alive on frame 1
+    for (let i = 0; i < 2; i++) spawnNpc('sidewalk');
+    for (let i = 0; i < 2; i++) spawnNpc('hottub');
+    // distribute them across the screen instead of stacking at the right
+    npcs.forEach((n, i) => { n.x = (i + 0.5) * (W / npcs.length); });
     setMode('playing');
   }
 
@@ -224,7 +251,14 @@
       truck.spin = -3.2;
       spawnJumpPuff();
       sfxJump();
+      if (!hintJumpDone) hintJumpDone = true;
     }
+  }
+
+  function countNpc(kind) {
+    let n = 0;
+    for (const x of npcs) if (x.kind === kind) n++;
+    return n;
   }
 
   // Pointer/touch
@@ -252,29 +286,46 @@
   function spawnObstacle() {
     const kind = pick(['fire', 'fire', 'hydrant', 'cone', 'firepit']);
     let w, h, y;
+    // Bigger silhouettes than v2 so they're more readable at any speed.
     switch (kind) {
-      case 'fire':    w = 46; h = 70; y = GROUND_Y - h; break;
-      case 'hydrant': w = 44; h = 56; y = GROUND_Y - h; break;
-      case 'cone':    w = 40; h = 52; y = GROUND_Y - h; break;
-      case 'firepit': w = 110; h = 36; y = GROUND_Y - h; break;
-      default:        w = 40; h = 60; y = GROUND_Y - h;
+      case 'fire':    w = 60; h = 88; y = GROUND_Y - h; break;
+      case 'hydrant': w = 56; h = 70; y = GROUND_Y - h; break;
+      case 'cone':    w = 54; h = 66; y = GROUND_Y - h; break;
+      case 'firepit': w = 140; h = 44; y = GROUND_Y - h; break;
+      default:        w = 50; h = 70; y = GROUND_Y - h;
     }
-    obstacles.push({ x: W + 60, y, w, h, kind, phase: Math.random() * Math.PI * 2 });
+    obstacles.push({ x: W + 80, y, w, h, kind, phase: Math.random() * Math.PI * 2 });
   }
 
   function spawnPickup() {
-    const kind = Math.random() < 0.75 ? 'water' : 'donut';
+    // 55% water (boost), 30% orange (snack), 15% capybara rescue (jackpot)
+    const r = Math.random();
+    const kind = r < 0.55 ? 'water' : (r < 0.85 ? 'orange' : 'rescue');
     let w, h, y;
-    // ALWAYS lifted off the ground so pickups can't be visually
-    // mistaken for ground-level obstacles.
     if (kind === 'water') {
-      w = 40; h = 44;
+      w = 44; h = 48;
       y = GROUND_Y - h - rand(PICKUP_MIN_LIFT, PICKUP_MIN_LIFT + 40);
+    } else if (kind === 'orange') {
+      w = 42; h = 42;
+      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT + 30, PICKUP_MAX_LIFT);
     } else {
-      w = 46; h = 46;
-      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT + 50, PICKUP_MAX_LIFT);
+      // Rescue capybara: always at a height that requires a jump but is
+      // very reachable, and visually obvious.
+      w = 52; h = 56;
+      y = GROUND_Y - h - rand(PICKUP_MIN_LIFT + 10, PICKUP_MIN_LIFT + 60);
     }
-    pickups.push({ x: W + 60, y, w, h, kind, phase: Math.random() * Math.PI * 2 });
+    pickups.push({ x: W + 80, y, w, h, kind, phase: Math.random() * Math.PI * 2 });
+  }
+
+  function spawnNpc(kind) {
+    // x past right edge; we let parallax move them left in render so they
+    // travel with the mid layer for visual depth.
+    npcs.push({
+      x: W + rand(0, 200),
+      y: 0,
+      phase: Math.random() * Math.PI * 2,
+      kind,
+    });
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -522,23 +573,56 @@
       const hb = truckHitbox();
       if (!p.taken && aabb(hb.x, hb.y, hb.w, hb.h, p.x, p.y, p.w, p.h)) {
         p.taken = true;
+        const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
         if (p.kind === 'water') {
           const wasBoosting = boostTime > 0;
           boostTime = Math.min(BOOST_MAX_TIME, boostTime + BOOST_TIME_PER_WATER);
-          spawnPickupBurst(p.x + p.w / 2, p.y + p.h / 2, '#4ec5ff');
-          popup(wasBoosting ? '+SIREN' : 'SIREN ON', p.x + p.w / 2, p.y, '#4ec5ff');
+          spawnPickupBurst(cx, cy, '#4ec5ff');
+          popup(wasBoosting ? '+SIREN' : 'SIREN ON', cx, p.y, '#4ec5ff');
           sfxPickup(660);
-          if (!wasBoosting) shake(4, 0.12);
-        } else {
-          score += 50;
-          distance += 500;
-          spawnPickupBurst(p.x + p.w / 2, p.y + p.h / 2, '#ffb14c');
-          popup('+50', p.x + p.w / 2, p.y, '#ffe24c');
+          if (!wasBoosting) shake(5, 0.14);
+          if (!hintWaterDone) {
+            hintWaterDone = true;
+            try { localStorage.setItem(TUTORIAL_SEEN_KEY, '1'); } catch {}
+          }
+        } else if (p.kind === 'orange') {
+          score += SCORE_ORANGE;
+          distance += SCORE_ORANGE * 10;
+          spawnPickupBurst(cx, cy, '#ffb14c');
+          popup('+' + SCORE_ORANGE, cx, p.y, '#ffe24c');
           sfxPickup(880);
+        } else if (p.kind === 'rescue') {
+          rescuedCount += 1;
+          totalRescued += 1;
+          try { localStorage.setItem('capyrizzlerush_total_rescued', String(totalRescued)); } catch {}
+          score += SCORE_RESCUE;
+          distance += SCORE_RESCUE * 10;
+          spawnPickupBurst(cx, cy, '#fff7e0');
+          spawnPickupBurst(cx, cy, '#ffd24a');
+          popup('RESCUED +' + SCORE_RESCUE, cx, p.y, '#ffd24a');
+          shake(6, 0.18);
+          sfxPickup(540);
+          sfxPickup(720);
         }
       }
       if (p.taken || p.x + p.w < -40) pickups.splice(i, 1);
     }
+
+    // ── Background NPCs: stream them through the mid layer
+    for (let i = npcs.length - 1; i >= 0; i--) {
+      const n = npcs[i];
+      const layerSpeed = n.kind === 'sidewalk' ? 0.45 : 0.18; // matches near/mid parallax
+      n.x -= worldSpeed * dt * layerSpeed;
+      n.phase += dt * 4;
+      if (n.x < -120) npcs.splice(i, 1);
+    }
+    // Continuously top up NPC populations so the world is never empty
+    if (countNpc('sidewalk') < 2 && Math.random() < dt * 0.6) spawnNpc('sidewalk');
+    if (countNpc('hottub')   < 2 && Math.random() < dt * 0.4) spawnNpc('hottub');
+
+    // ── Tutorial hint fades
+    if (hintJumpDone)  hintJumpAlpha  = Math.max(0, hintJumpAlpha  - dt * 1.5);
+    if (hintWaterDone) hintWaterAlpha = Math.max(0, hintWaterAlpha - dt * 1.5);
 
     // ── Exhaust
     spawnExhaust();
@@ -608,13 +692,16 @@
     drawSky();
     drawFarBuildings();
     drawMidBuildings();
+    drawHotTubNpcs();
     drawNearProps();
+    drawSidewalkNpcs();
     drawRoad();
     drawPickups();
     drawObstacles();
     drawTruck();
     drawParticles();
     drawPopups();
+    drawHints();
 
     // intensity vignette when boosting
     if (boosting) {
@@ -866,12 +953,14 @@
   function drawPickups() {
     for (const p of pickups) {
       const bob = Math.sin(p.phase) * 4;
-      // pulsing glow halo — makes pickups unmistakably distinct
-      // from ground-level obstacles.
-      const haloColor = p.kind === 'water' ? '#4ec5ff' : '#ffe24c';
+      const haloColor =
+        p.kind === 'water'  ? '#4ec5ff' :
+        p.kind === 'orange' ? '#ffe24c' :
+        /* rescue */          '#ffffff';
       drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, haloColor);
-      if (p.kind === 'water') drawWater(p.x, p.y + bob, p.w, p.h);
-      else drawDonut(p.x, p.y + bob, p.w, p.h);
+      if      (p.kind === 'water')  drawWater(p.x, p.y + bob, p.w, p.h);
+      else if (p.kind === 'orange') drawOrange(p.x, p.y + bob, p.w, p.h);
+      else                          drawRescueCapy(p.x, p.y + bob, p.w, p.h, p.phase);
     }
   }
 
@@ -926,33 +1015,54 @@
     ctx.fillRect(x + 10, y + 16, 4, 16);
     ctx.restore();
   }
-  function drawDonut(x, y, w, h) {
+  function drawOrange(x, y, w, h) {
     ctx.save();
     const cx = x + w / 2, cy = y + h / 2;
-    // shadow ring
-    ctx.fillStyle = '#a3582d';
-    ctx.beginPath(); ctx.arc(cx, cy, w * 0.46, 0, Math.PI * 2); ctx.fill();
-    // icing
-    ctx.fillStyle = '#ff8ec3';
-    ctx.beginPath(); ctx.arc(cx, cy, w * 0.42, 0, Math.PI * 2); ctx.fill();
+    // body
+    ctx.fillStyle = '#ff8a1f';
+    ctx.beginPath(); ctx.arc(cx, cy, w * 0.45, 0, Math.PI * 2); ctx.fill();
     outlineLast(ctx, '#1a0f3a', 2);
-    // hole
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.beginPath(); ctx.arc(cx, cy, w * 0.15, 0, Math.PI * 2); ctx.fill();
-    ctx.globalCompositeOperation = 'source-over';
-    // sprinkles
-    const sp = ['#fff', '#ffe24c', '#4ec5ff', '#ff5a3c'];
-    for (let i = 0; i < 6; i++) {
-      const a = i * (Math.PI / 3) + 0.4;
-      const r = w * 0.3;
-      ctx.save();
-      ctx.translate(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-      ctx.rotate(a);
-      ctx.fillStyle = sp[i % sp.length];
-      ctx.fillRect(-3, -1, 6, 2);
-      ctx.restore();
-    }
+    // dimples
+    ctx.fillStyle = '#e07212';
+    ctx.beginPath(); ctx.arc(cx - w * 0.12, cy + w * 0.08, w * 0.04, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + w * 0.18, cy - w * 0.04, w * 0.035, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + w * 0.05, cy + w * 0.2, w * 0.04, 0, Math.PI * 2); ctx.fill();
+    // sheen
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath(); ctx.ellipse(cx - w * 0.18, cy - w * 0.18, w * 0.12, w * 0.07, -0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // leaf
+    ctx.fillStyle = '#3fae3a';
+    ctx.beginPath();
+    ctx.moveTo(cx + w * 0.05, cy - w * 0.42);
+    ctx.quadraticCurveTo(cx + w * 0.3, cy - w * 0.55, cx + w * 0.32, cy - w * 0.3);
+    ctx.quadraticCurveTo(cx + w * 0.15, cy - w * 0.3, cx + w * 0.05, cy - w * 0.42);
+    ctx.closePath(); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 1.5);
+    // stem
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, cy - w * 0.42); ctx.lineTo(cx + w * 0.05, cy - w * 0.45); ctx.stroke();
     ctx.restore();
+  }
+
+  function drawRescueCapy(x, y, w, h, phase) {
+    const cx = x + w / 2, cy = y + h / 2;
+    // flashing "HELP" text bubble above
+    ctx.save();
+    const blink = (Math.sin(phase * 2) * 0.5 + 0.5);
+    ctx.globalAlpha = 0.4 + blink * 0.6;
+    ctx.fillStyle = '#ffd24a';
+    rrect(cx - 22, y - 16, 44, 14, 4); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 1.5);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#1a0f3a';
+    ctx.font = 'bold 10px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HELP!', cx, y - 6);
+    ctx.restore();
+    // capybara with one arm waving
+    drawCapybara(cx, cy + 2, Math.min(w, h) * 0.42, { helmet: 'none', arm: 'wave', skin: '#a87544' });
   }
 
   function drawTruck() {
@@ -988,38 +1098,43 @@
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     rrect(x + 4, y + h - 6, w - 8, 8, 4); ctx.fill();
 
-    // rear cargo (water tank)
+    // rear cargo (water tank) — keep lower so capybara dominates
     ctx.fillStyle = '#d94028';
-    rrect(x + 2, y + 18, w * 0.62, h - 26, 6); ctx.fill();
+    rrect(x + 2, y + 24, w * 0.60, h - 30, 6); ctx.fill();
     outlineLast(ctx, '#1a0f3a', 2);
-    // ladder on top
+    // ladder on top of tank
     ctx.strokeStyle = '#fff7e0';
     ctx.lineWidth = 2;
-    ctx.strokeRect(x + 8, y + 14, w * 0.55, 6);
-    for (let lx = x + 10; lx < x + w * 0.6; lx += 8) {
-      ctx.beginPath(); ctx.moveTo(lx, y + 14); ctx.lineTo(lx, y + 20); ctx.stroke();
+    ctx.strokeRect(x + 8, y + 20, w * 0.55, 6);
+    for (let lx = x + 10; lx < x + w * 0.6; lx += 9) {
+      ctx.beginPath(); ctx.moveTo(lx, y + 20); ctx.lineTo(lx, y + 26); ctx.stroke();
     }
     // gold side stripe
     ctx.fillStyle = '#ffd24a';
-    ctx.fillRect(x + 4, y + h * 0.55, w * 0.6, 5);
+    ctx.fillRect(x + 4, y + h * 0.6, w * 0.6, 5);
 
-    // cab
+    // rescued capybaras stacked on the back of the truck (visual reward)
+    drawRescuedStack(x, y, w, h);
+
+    // cab (lower / shorter — capybara sits in it and pokes way up)
     ctx.fillStyle = '#ff5a3c';
-    rrect(x + w * 0.58, y + 24, w * 0.4, h - 32, 8); ctx.fill();
+    rrect(x + w * 0.56, y + 28, w * 0.42, h - 36, 8); ctx.fill();
     outlineLast(ctx, '#1a0f3a', 2);
 
-    // windshield
+    // side window of cab
     ctx.fillStyle = '#a8e6ff';
-    rrect(x + w * 0.66, y + 30, w * 0.28, 22, 4); ctx.fill();
+    rrect(x + w * 0.62, y + 34, w * 0.32, 16, 3); ctx.fill();
     outlineLast(ctx, '#1a0f3a', 2);
 
-    // RIZZLE in the windshield (placeholder portrait)
-    drawRizzleHead(x + w * 0.78, y + 38, 18);
+    // BIG RIZZLE — sits in the cab, head and helmet poking far above the roof
+    const capCx = x + w * 0.78;
+    const capCy = y + 6;
+    drawCapybara(capCx, capCy, 34, { arm: 'wheel' });
 
-    // siren light
+    // siren light on top of cab (in front of capybara)
     const sirenFlash = (performance.now() / 200) % 2 < 1;
     ctx.fillStyle = sirenFlash ? '#ffe24c' : '#4ec5ff';
-    ctx.fillRect(x + w * 0.62, y + 18, 10, 6);
+    rrect(x + w * 0.56, y + 22, 14, 8, 2); ctx.fill();
     outlineLast(ctx, '#1a0f3a', 1.5);
 
     // bumper
@@ -1027,8 +1142,29 @@
     ctx.fillRect(x + w - 8, y + h - 22, 8, 10);
 
     // wheels
-    drawWheel(x + 18,        y + h - 4, 14);
-    drawWheel(x + w - 24,    y + h - 4, 14);
+    drawWheel(x + 22,        y + h - 4, 16);
+    drawWheel(x + w - 30,    y + h - 4, 16);
+  }
+
+  function drawRescuedStack(x, y, w, h) {
+    if (rescuedCount <= 0) return;
+    const maxVisible = Math.min(rescuedCount, 4);
+    for (let i = 0; i < maxVisible; i++) {
+      const px = x + 14 + i * 20;
+      const py = y + 12 - 6 + Math.sin(performance.now() / 220 + i) * 1.5;
+      drawCapybara(px, py, 10, { helmet: 'none', skin: i % 2 ? '#a87544' : '#b08252' });
+    }
+    if (rescuedCount > 4) {
+      ctx.save();
+      ctx.font = 'bold 12px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.fillStyle = '#fff7e0';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#1a0f3a';
+      const t = '+' + (rescuedCount - 4);
+      ctx.strokeText(t, x + 14 + 4 * 20 + 2, y + 12);
+      ctx.fillText(t, x + 14 + 4 * 20 + 2, y + 12);
+      ctx.restore();
+    }
   }
 
   function drawWheel(cx, cy, r) {
@@ -1053,36 +1189,230 @@
     ctx.restore();
   }
 
-  // tiny placeholder portrait of Rizzle inside the windshield
-  function drawRizzleHead(cx, cy, r) {
+  // Full Rizzle character drawing — head, beard, helmet, optional body/arms.
+  // Use opts.size to scale (1.0 = ~120px tall hero on the truck).
+  // opts.helmet = 'fire' (default red firefighter) or 'none'.
+  // opts.arm = 'wave' (arm raised), 'wheel' (gripping steering), or null.
+  // opts.outline draws strong outlines (default true).
+  function drawCapybara(cx, cy, size, opts) {
+    opts = opts || {};
+    const s = size;
+    const outline = opts.outline !== false ? '#1a0f3a' : null;
+    const skin = opts.skin || '#b4884f';
+    const beard = opts.beard || '#fff7e0';
+
     ctx.save();
-    // helmet
+
+    // Body (under the head if we draw one)
+    if (opts.body) {
+      ctx.fillStyle = opts.bodyColor || '#7a4a2a';
+      // chunky rounded torso
+      rrect(cx - s * 0.55, cy + s * 0.35, s * 1.1, s * 0.85, s * 0.25);
+      ctx.fill();
+      if (outline) outlineLast(ctx, outline, Math.max(1.5, s * 0.04));
+      // reflective firefighter stripe
+      ctx.fillStyle = '#ffd24a';
+      ctx.fillRect(cx - s * 0.5, cy + s * 0.6, s * 1.0, s * 0.09);
+    }
+
+    // Head base (tan circle, slightly squashed wide like a capybara)
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, s * 0.78, s * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.5, s * 0.05));
+
+    // tiny rounded ears
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.ellipse(cx - s * 0.62, cy - s * 0.45, s * 0.18, s * 0.14, -0.3, 0, Math.PI * 2); ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
+    ctx.beginPath(); ctx.ellipse(cx + s * 0.62, cy - s * 0.45, s * 0.18, s * 0.14, 0.3, 0, Math.PI * 2); ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
+    // inner ear
+    ctx.fillStyle = '#7a5230';
+    ctx.beginPath(); ctx.ellipse(cx - s * 0.6, cy - s * 0.43, s * 0.08, s * 0.06, -0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + s * 0.6, cy - s * 0.43, s * 0.08, s * 0.06, 0.3, 0, Math.PI * 2); ctx.fill();
+
+    // White beard / fluffy chin — Rizzle's signature
+    ctx.fillStyle = beard;
+    ctx.beginPath();
+    // wavy beard outline
+    ctx.moveTo(cx - s * 0.55, cy + s * 0.05);
+    ctx.bezierCurveTo(cx - s * 0.75, cy + s * 0.55, cx - s * 0.3, cy + s * 0.95, cx, cy + s * 0.85);
+    ctx.bezierCurveTo(cx + s * 0.3, cy + s * 0.95, cx + s * 0.75, cy + s * 0.55, cx + s * 0.55, cy + s * 0.05);
+    ctx.bezierCurveTo(cx + s * 0.3, cy + s * 0.2, cx - s * 0.3, cy + s * 0.2, cx - s * 0.55, cy + s * 0.05);
+    ctx.closePath();
+    ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.4, s * 0.05));
+    // beard texture wisps
+    ctx.strokeStyle = '#cfc4a3';
+    ctx.lineWidth = Math.max(1, s * 0.025);
+    ctx.beginPath();
+    ctx.moveTo(cx - s * 0.3, cy + s * 0.35); ctx.lineTo(cx - s * 0.2, cy + s * 0.7);
+    ctx.moveTo(cx, cy + s * 0.4);            ctx.lineTo(cx + s * 0.05, cy + s * 0.85);
+    ctx.moveTo(cx + s * 0.3, cy + s * 0.35); ctx.lineTo(cx + s * 0.25, cy + s * 0.7);
+    ctx.stroke();
+
+    // Eyes (one half-closed, one wide — derpy Rizzle energy)
+    // sclera bumps poking through the beard
+    ctx.fillStyle = '#dff3b0';
+    ctx.beginPath(); ctx.arc(cx - s * 0.3, cy - s * 0.05, s * 0.18, 0, Math.PI * 2); ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
+    ctx.fillStyle = '#dff3b0';
+    ctx.beginPath(); ctx.arc(cx + s * 0.3, cy - s * 0.05, s * 0.2, 0, Math.PI * 2); ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
+    // half-closed left eye — flat top
+    ctx.fillStyle = skin;
+    ctx.fillRect(cx - s * 0.48, cy - s * 0.23, s * 0.36, s * 0.18);
+    // pupils
+    ctx.fillStyle = outline || '#1a0f3a';
+    ctx.beginPath(); ctx.arc(cx - s * 0.30, cy + s * 0.00, s * 0.05, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + s * 0.32, cy - s * 0.05, s * 0.07, 0, Math.PI * 2); ctx.fill();
+    // eye gleams
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cx + s * 0.34, cy - s * 0.08, s * 0.025, 0, Math.PI * 2); ctx.fill();
+
+    // Tiny mouth corner peeking out of beard
+    ctx.fillStyle = outline || '#1a0f3a';
+    ctx.fillRect(cx - s * 0.04, cy + s * 0.18, s * 0.08, s * 0.04);
+
+    // Helmet
+    if (opts.helmet !== 'none') {
+      drawFireHelmet(cx, cy, s, outline);
+    }
+
+    // Arms
+    if (opts.arm === 'wave') {
+      // raised arm waving
+      ctx.fillStyle = skin;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = outline || '#1a0f3a';
+      ctx.lineWidth = Math.max(2, s * 0.16);
+      ctx.beginPath();
+      ctx.moveTo(cx + s * 0.5, cy + s * 0.6);
+      ctx.quadraticCurveTo(cx + s * 1.0, cy + s * 0.2, cx + s * 1.1, cy - s * 0.4);
+      ctx.stroke();
+      // paw
+      ctx.fillStyle = skin;
+      ctx.beginPath(); ctx.arc(cx + s * 1.1, cy - s * 0.45, s * 0.16, 0, Math.PI * 2); ctx.fill();
+      if (outline) outlineLast(ctx, outline, Math.max(1.2, s * 0.04));
+    } else if (opts.arm === 'wheel') {
+      // both arms forward gripping steering wheel
+      ctx.strokeStyle = outline || '#1a0f3a';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(2, s * 0.16);
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.35, cy + s * 0.55);
+      ctx.quadraticCurveTo(cx + s * 0.0, cy + s * 0.95, cx + s * 0.55, cy + s * 0.85);
+      ctx.stroke();
+      // wheel
+      ctx.fillStyle = '#1a0f3a';
+      ctx.beginPath(); ctx.arc(cx + s * 0.6, cy + s * 0.85, s * 0.18, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff7e0';
+      ctx.beginPath(); ctx.arc(cx + s * 0.6, cy + s * 0.85, s * 0.08, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // Red firefighter helmet (the iconic Rizzle hat)
+  function drawFireHelmet(cx, cy, s, outline) {
+    ctx.save();
+    // back brim
+    ctx.fillStyle = '#1a0f3a';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - s * 0.38, s * 0.95, s * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // red dome
     ctx.fillStyle = '#ff3a2a';
     ctx.beginPath();
-    ctx.arc(cx, cy - r * 0.4, r, Math.PI, 0);
-    ctx.lineTo(cx + r * 1.1, cy - r * 0.2);
-    ctx.lineTo(cx - r * 1.1, cy - r * 0.2);
-    ctx.closePath(); ctx.fill();
-    // helmet front shield
+    ctx.ellipse(cx, cy - s * 0.55, s * 0.78, s * 0.55, 0, Math.PI, 0);
+    ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.4, s * 0.05));
+    // front bill / brim (cap-style going forward over right side, like the pfp)
+    ctx.fillStyle = '#ff3a2a';
+    ctx.beginPath();
+    ctx.moveTo(cx + s * 0.15, cy - s * 0.42);
+    ctx.quadraticCurveTo(cx + s * 1.1, cy - s * 0.6, cx + s * 1.05, cy - s * 0.18);
+    ctx.quadraticCurveTo(cx + s * 0.6, cy - s * 0.25, cx + s * 0.4, cy - s * 0.32);
+    ctx.closePath();
+    ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.4, s * 0.05));
+    // yellow shield with bee
     ctx.fillStyle = '#ffd24a';
     ctx.beginPath();
-    ctx.moveTo(cx - r * 0.35, cy - r * 0.9);
-    ctx.lineTo(cx + r * 0.35, cy - r * 0.9);
-    ctx.lineTo(cx + r * 0.25, cy - r * 0.55);
-    ctx.lineTo(cx - r * 0.25, cy - r * 0.55);
-    ctx.closePath(); ctx.fill();
-    // face (tan)
-    ctx.fillStyle = '#b4884f';
-    ctx.beginPath(); ctx.arc(cx, cy + r * 0.1, r * 0.8, 0, Math.PI * 2); ctx.fill();
-    // beard
-    ctx.fillStyle = '#fff7e0';
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + r * 0.45, r * 0.7, r * 0.55, 0, 0, Math.PI * 2);
+    ctx.moveTo(cx - s * 0.18, cy - s * 0.95);
+    ctx.lineTo(cx + s * 0.18, cy - s * 0.95);
+    ctx.lineTo(cx + s * 0.22, cy - s * 0.7);
+    ctx.lineTo(cx, cy - s * 0.6);
+    ctx.lineTo(cx - s * 0.22, cy - s * 0.7);
+    ctx.closePath();
     ctx.fill();
-    // eyes
-    ctx.fillStyle = '#1a0f3a';
-    ctx.beginPath(); ctx.arc(cx - r * 0.32, cy - r * 0.05, 2.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + r * 0.28, cy - r * 0.05, 2.6, 0, Math.PI * 2); ctx.fill();
+    if (outline) outlineLast(ctx, outline, Math.max(1.1, s * 0.04));
+    // bee marking
+    ctx.fillStyle = outline || '#1a0f3a';
+    ctx.beginPath(); ctx.arc(cx, cy - s * 0.78, s * 0.05, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(cx - s * 0.05, cy - s * 0.83, s * 0.1, s * 0.02);
+    ctx.restore();
+  }
+
+  function drawHotTubNpcs() {
+    // capybaras chilling in window-mounted hot tubs in the mid building layer
+    for (const n of npcs) {
+      if (n.kind !== 'hottub') continue;
+      const baseY = GROUND_Y - 2;
+      const y = baseY - 110;
+      const x = n.x;
+      // hot tub bowl
+      ctx.save();
+      ctx.fillStyle = '#4ec5ff';
+      rrect(x, y + 8, 56, 24, 6); ctx.fill();
+      outlineLast(ctx, '#1a0f3a', 1.5);
+      // steam wisps
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#fff7e0';
+      for (let i = 0; i < 3; i++) {
+        const wy = y - 6 - Math.sin(n.phase + i) * 4;
+        ctx.beginPath(); ctx.arc(x + 14 + i * 14, wy, 4, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      // capybara head peeking out
+      drawCapybara(x + 28, y + 8, 10, { helmet: 'none', skin: '#a87544' });
+    }
+  }
+
+  function drawSidewalkNpcs() {
+    for (const n of npcs) {
+      if (n.kind !== 'sidewalk') continue;
+      const x = n.x;
+      const y = GROUND_Y - 4;
+      // tiny capybara waving from the sidewalk
+      drawCapybara(x, y - 10, 12, { helmet: 'none', arm: 'wave', skin: '#a87544' });
+    }
+  }
+
+  function drawHints() {
+    if (mode !== 'playing') return;
+    if (hintJumpAlpha <= 0 && hintWaterAlpha <= 0) return;
+    if (hintJumpAlpha > 0)  drawHintCard(W * 0.5, 120, 'TAP / SPACE to JUMP', hintJumpAlpha, '#fff7e0');
+    if (hintWaterAlpha > 0) drawHintCard(W * 0.5, 168, 'Grab WATER to trigger SIREN BOOST', hintWaterAlpha, '#4ec5ff');
+  }
+
+  function drawHintCard(cx, cy, text, alpha, accent) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 18px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    const padX = 18, padY = 8;
+    const m = ctx.measureText(text);
+    const w = m.width + padX * 2;
+    const h = 28 + padY;
+    ctx.fillStyle = 'rgba(26, 15, 58, 0.78)';
+    rrect(cx - w / 2, cy - h / 2, w, h, 14); ctx.fill();
+    outlineLast(ctx, accent, 2);
+    ctx.fillStyle = accent;
+    ctx.fillText(text, cx, cy + 5);
     ctx.restore();
   }
 
