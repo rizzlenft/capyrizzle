@@ -23,6 +23,10 @@
  */
 
 (() => {
+  const BUILD = 'v6.2';
+  // eslint-disable-next-line no-console
+  console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
+
   'use strict';
 
   // ─── DOM ──────────────────────────────────────────────────────────────
@@ -480,13 +484,18 @@
       newBest = true;
       try { localStorage.setItem(HIGHSCORE_KEY, String(state.best)); } catch {}
     }
-    elFinal.textContent      = String(final);
-    elFinalSmash.textContent = String(state.firesSmashed);
-    elFinalCombo.textContent = '×' + state.bestCombo;
-    elFinalBest.textContent  = String(state.best);
-    elNewBest.classList.toggle('hidden', !newBest);
+    setText(elFinal,      String(final));
+    setText(elFinalSmash, String(state.firesSmashed));
+    setText(elFinalCombo, '×' + state.bestCombo);
+    setText(elFinalBest,  String(state.best));
+    if (elNewBest) elNewBest.classList.toggle('hidden', !newBest);
     setMode('gameover');
   }
+
+  // Defensive DOM helper — guarantees a missing element can never freeze the
+  // frame loop. (Stale browser HTML caches have bitten us before.)
+  function setText(el, text) { if (el) el.textContent = text; }
+  function setStyleWidth(el, w) { if (el) el.style.width = w; }
 
   // ═════════════════════════════════════════════════════════════════════
   //   SPAWNING — authored patterns instead of random obstacles
@@ -716,22 +725,23 @@
     state.comboLevelShown = 0;
   }
   function bumpComboPill() {
+    if (!elCombo) return;
     elCombo.classList.remove('bumped');
-    // force reflow so the animation can restart
     void elCombo.offsetWidth;
     elCombo.classList.add('bumped');
     setTimeout(() => elCombo.classList.remove('bumped'), 140);
   }
   function showComboPop(text) {
+    if (!elComboPop) return;
     elComboPop.textContent = text;
     elComboPop.classList.remove('hidden');
-    // restart animation
     elComboPop.style.animation = 'none';
     void elComboPop.offsetWidth;
     elComboPop.style.animation = '';
     setTimeout(() => elComboPop.classList.add('hidden'), 750);
   }
   function showMilestone(text) {
+    if (!elMilestone) return;
     elMilestone.textContent = text;
     elMilestone.classList.remove('hidden');
     elMilestone.style.animation = 'none';
@@ -962,13 +972,13 @@
       blip(680, 0.20, 'triangle', 0.06, 1320);
     }
 
-    // ── HUD ──────────────────────────────────────────────────────────
-    elScore.textContent = state.score + ' m';
-    elBest.textContent  = 'BEST ' + Math.max(state.best, state.score) + ' m';
-    elCombo.textContent = '×' + state.combo;
-    elCombo.classList.toggle('hot', state.combo >= 8);
-    elBoost.style.width = clamp((state.boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%';
-    elBoostLabel.textContent = state.boosting ? 'SIREN!' : 'SIREN';
+    // ── HUD ── (defensive — missing elements must never freeze the loop)
+    setText(elScore, state.score + ' m');
+    setText(elBest,  'BEST ' + Math.max(state.best, state.score) + ' m');
+    setText(elCombo, '×' + state.combo);
+    if (elCombo) elCombo.classList.toggle('hot', state.combo >= 8);
+    setStyleWidth(elBoost, clamp((state.boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%');
+    setText(elBoostLabel, state.boosting ? 'SIREN!' : 'SIREN');
   }
 
   function updateParticles(dt) {
@@ -1680,12 +1690,26 @@
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[CapyRizzle] frame error:', err);
+      showErrorBanner(err);
     }
     requestAnimationFrame(frame);
   }
 
+  // On-screen error banner — much easier to diagnose than a silent freeze.
+  let _bannerShown = false;
+  function showErrorBanner(err) {
+    if (_bannerShown) return;
+    _bannerShown = true;
+    try {
+      const div = document.createElement('div');
+      div.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;padding:10px 14px;background:#3b0d0d;color:#ffd6d6;font:13px/1.4 ui-monospace,monospace;border:1px solid #ff6b6b;border-radius:8px;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.5);';
+      div.textContent = '[CapyRizzle] crash — ' + (err && err.message ? err.message : String(err)) + ' — hard refresh (⌘⇧R) and check console';
+      document.body.appendChild(div);
+    } catch {}
+  }
+
   // Boot
-  elBest.textContent = 'BEST ' + state.best + ' m';
+  setText(elBest, 'BEST ' + state.best + ' m');
   setMode('title');
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();
