@@ -88,9 +88,9 @@
   const PICKUP_LIFT_MAX = 150;
 
   // Game over flow
-  const HIT_FREEZE   = 0.18;       // freeze frame on hit
+  const HIT_FREEZE   = 0.12;       // freeze frame on hit (short, snappy)
   const HIT_FLASH    = 0.10;       // white flash duration
-  const HIT_DELAY    = 0.55;       // delay before showing game-over overlay
+  const HIT_DELAY    = 0.22;       // delay before showing game-over overlay
 
   // Combo
   const COMBO_MAX = 20;
@@ -463,6 +463,7 @@
     state.deathT    = HIT_DELAY;
     state.shake.mag = Math.max(state.shake.mag, 18);
     state.shake.time = Math.max(state.shake.time, 0.45);
+    state.slowMo = 0;            // never let near-miss slow-mo stretch the death sequence
     resetCombo();
     // big particle burst
     spawnCrash(state.truck.x + TRUCK_W * 0.5, state.truck.y + TRUCK_H * 0.4);
@@ -494,48 +495,70 @@
   //
   //   Variants are visual-only; the collider is always a fire-shaped box.
   // ═════════════════════════════════════════════════════════════════════
+  // Tuning math reference (don't break these without re-deriving):
+  //   Truck airtime per jump ≈ 0.92s (with apex hang).
+  //   Worst-case world speed ≈ 200 px/s (start) → jump covers ~184 px laterally.
+  //   At MAX_SPEED 520 → jump covers ~478 px laterally.
+  // Every fire collider must be cleanly jumpable in one jump at BASE_SPEED.
+  // Multi-fire patterns space individual fires far enough apart that they can
+  // be jumped INDIVIDUALLY (one jump per fire). Wide "pit" obstacles are kept
+  // narrow enough that a single jump clears them at start speed too.
   const FIRE_VARIANTS = {
-    // name        w     h    color1     color2     core
-    torch:     { w: 60,  h: 92,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
-    tall:      { w: 56,  h: 108, color1: '#ff3a2a', color2: '#ffd24a', core: '#fff7e0' },
-    blue:      { w: 56,  h: 96,  color1: '#4ec5ff', color2: '#a8e6ff', core: '#fff7e0' },
-    pit:       { w: 150, h: 56,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
-    short:     { w: 62,  h: 70,  color1: '#ff8a3c', color2: '#ffd24a', core: '#fff7e0' },
+    // name        w    h    color1     color2     core
+    torch:     { w: 60, h: 92,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
+    tall:      { w: 54, h: 108, color1: '#ff3a2a', color2: '#ffd24a', core: '#fff7e0' },
+    blue:      { w: 56, h: 96,  color1: '#4ec5ff', color2: '#a8e6ff', core: '#fff7e0' },
+    pit:       { w: 64, h: 50,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
+    short:     { w: 62, h: 68,  color1: '#ff8a3c', color2: '#ffd24a', core: '#fff7e0' },
   };
 
+  // Reference: a fire's collider takes ~ (truckHitboxW + fireHitboxW)/speed
+  // seconds of overlap with the truck hitbox. With pad 10 on each side,
+  // hitbox widths are (w − 20). At base speed 200 px/s a single jump
+  // (~0.92s airtime) can clear a fire whose hitbox + truck hitbox < 184 px,
+  // i.e. fire w ≤ ~70 px. All our fire variants satisfy this with margin.
+  //
+  // Multi-fire patterns: minimum dx between two fires must be >= one full
+  // "jump-and-land-and-jump-again" cycle distance at the current speed
+  // (cycle ≈ jump airtime 0.92s + crouch 0.07s = ~1.0s = ~200 px @ start).
+  // So we use dx ≥ 240 between separate fires in a pattern.
   const PATTERNS = [
     // ── Easy (phase 1) ──
-    { name: 'single',     phase: 1, weight: 4, items: [{ kind: 'fire', dx: 0,   variant: 'torch' }] },
-    { name: 'singleShort',phase: 1, weight: 2, items: [{ kind: 'fire', dx: 0,   variant: 'short' }] },
-    { name: 'reward',     phase: 1, weight: 2, items: [{ kind: 'water', dx: 0, lift: 110 }] },
+    { name: 'single',     phase: 1, weight: 5, items: [{ kind: 'fire', dx: 0, variant: 'torch' }] },
+    { name: 'singleShort',phase: 1, weight: 3, items: [{ kind: 'fire', dx: 0, variant: 'short' }] },
+    { name: 'easyWater',  phase: 1, weight: 2, items: [{ kind: 'water', dx: 0, lift: 90 }] },
 
     // ── Medium (phase 2) ──
-    { name: 'tall',       phase: 2, weight: 3, items: [{ kind: 'fire', dx: 0,   variant: 'tall' }] },
-    { name: 'blue',       phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0,   variant: 'blue' }] },
-    { name: 'pit',        phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0,   variant: 'pit'  }] },
-    { name: 'double',     phase: 2, weight: 3, items: [
+    { name: 'tall',       phase: 2, weight: 3, items: [{ kind: 'fire', dx: 0, variant: 'tall' }] },
+    { name: 'blue',       phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'blue' }] },
+    { name: 'pit',        phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'pit'  }] },
+    { name: 'doubleWide', phase: 2, weight: 3, items: [
         { kind: 'fire', dx: 0,   variant: 'short' },
-        { kind: 'fire', dx: 150, variant: 'short' },
+        { kind: 'fire', dx: 280, variant: 'short' },
     ]},
-    { name: 'gauntlet',   phase: 2, weight: 2, items: [
-        { kind: 'fire',  dx: 0,   variant: 'torch' },
-        { kind: 'water', dx: 130, lift: 120 },
+    // Mid-jump water reward — water lifted to ~jump peak height
+    // (truck reaches y ≈ 186; truck-hitbox center ≈ 230; so water y ≈ 220
+    // → lift ≈ 450 − 52 − 220 = 178). Pattern spawns water in the AIR ahead
+    // of the fire so a single jump clears the fire and grabs the water.
+    { name: 'jumpReward', phase: 2, weight: 2, items: [
+        { kind: 'fire',  dx: 0,   variant: 'short' },
+        { kind: 'water', dx: 110, lift: 178 },
     ]},
 
     // ── Hard (phase 3) ──
     { name: 'triple',     phase: 3, weight: 2, items: [
         { kind: 'fire', dx: 0,   variant: 'short' },
-        { kind: 'fire', dx: 140, variant: 'short' },
-        { kind: 'fire', dx: 280, variant: 'short' },
+        { kind: 'fire', dx: 290, variant: 'short' },
+        { kind: 'fire', dx: 580, variant: 'short' },
     ]},
     { name: 'pit+tall',   phase: 3, weight: 2, items: [
         { kind: 'fire', dx: 0,   variant: 'pit' },
-        { kind: 'fire', dx: 240, variant: 'tall' },
+        { kind: 'fire', dx: 320, variant: 'tall' },
     ]},
     { name: 'rewardRun',  phase: 3, weight: 1, items: [
         { kind: 'fire',  dx: 0,   variant: 'torch' },
-        { kind: 'water', dx: 140, lift: 130 },
-        { kind: 'fire',  dx: 280, variant: 'torch' },
+        { kind: 'water', dx: 110, lift: 178 },
+        { kind: 'fire',  dx: 310, variant: 'torch' },
     ]},
   ];
 
@@ -1644,11 +1667,12 @@
     let dt = (now - lastT) / 1000;
     lastT = now;
     if (dt > 0.05) dt = 0.05;
-    // slow-mo: gameplay dt is scaled down, but slowMo timer decrements in real time
+    // slow-mo: gameplay dt is scaled down, but slowMo timer decrements in real time.
+    // Only applies while actively playing — never extends death/freeze windows.
     let gameDt = dt;
     if (state.slowMo > 0) {
       state.slowMo = Math.max(0, state.slowMo - dt);
-      gameDt = dt * SLOWMO_FACTOR;
+      if (mode === 'playing') gameDt = dt * SLOWMO_FACTOR;
     }
     try {
       update(gameDt);
