@@ -32,9 +32,9 @@
   const GRAVITY  = 2200;            // px/s^2
   const JUMP_V   = -880;            // initial jump velocity
 
-  const BASE_SPEED = 230;           // starting world speed (px/s) — slower for readability
-  const MAX_SPEED  = 680;
-  const SPEED_RAMP = 0.55;          // speed gained per second of play
+  const BASE_SPEED = 180;           // starting world speed (px/s) — chill opening
+  const MAX_SPEED  = 540;
+  const SPEED_RAMP = 0.28;          // speed gained per second of play
 
   const BOOST_MULT = 1.55;          // speed multiplier while boosting
   const BOOST_TIME_PER_WATER = 2.6; // seconds of boost per water pickup
@@ -97,8 +97,10 @@
   const obstacles = [];
   /** @type {Array<{x:number,y:number,w:number,h:number,kind:string,phase:number,taken?:boolean}>} */
   const pickups = [];
-  /** @type {Array<{x:number,y:number,phase:number,kind:string}>} */
-  const npcs = [];           // background capybara NPCs (waving, hot tubbing)
+  /** @type {Array<{x:number,y:number,phase:number,kind:string,vx?:number,vy?:number}>} */
+  const npcs = [];           // background capybara NPCs (sidewalk, hot tub, rooftop, balloon, plane, ufo, cloud, koolaid)
+  /** @type {Array<{x:number,y:number,life:number,max:number}>} */
+  const telegraphs = [];     // incoming-obstacle alert chevrons on the right edge
   /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,max:number,color:string,size:number,kind:string,grav?:number}>} */
   const particles = [];
   /** @type {Array<{x:number,y:number,life:number,max:number,text:string,color:string,vy:number}>} */
@@ -173,6 +175,7 @@
     particles.length = 0;
     popups.length = 0;
     npcs.length = 0;
+    telegraphs.length = 0;
     rescuedCount = 0;
 
     // Initial spawn timing uses a grace period so the player isn't
@@ -190,10 +193,16 @@
 
   function startGame() {
     resetRun();
-    // seed a few NPCs immediately so the world feels alive on frame 1
+    // Seed all NPC layers immediately so the world feels alive on frame 1.
     for (let i = 0; i < 2; i++) spawnNpc('sidewalk');
     for (let i = 0; i < 2; i++) spawnNpc('hottub');
-    // distribute them across the screen instead of stacking at the right
+    for (let i = 0; i < 2; i++) spawnNpc('rooftop');
+    spawnNpc('koolaid');
+    spawnNpc('balloon');
+    spawnNpc('plane');
+    spawnNpc('cloud');
+    spawnNpc('cloud');
+    // Distribute everyone across the screen instead of stacking at the right
     npcs.forEach((n, i) => { n.x = (i + 0.5) * (W / npcs.length); });
     setMode('playing');
   }
@@ -318,14 +327,31 @@
   }
 
   function spawnNpc(kind) {
-    // x past right edge; we let parallax move them left in render so they
-    // travel with the mid layer for visual depth.
-    npcs.push({
-      x: W + rand(0, 200),
-      y: 0,
-      phase: Math.random() * Math.PI * 2,
-      kind,
-    });
+    const n = { x: 0, y: 0, phase: Math.random() * Math.PI * 2, kind, vx: 0, vy: 0 };
+    switch (kind) {
+      case 'sidewalk':
+        n.x = W + rand(0, 200); n.y = 0; break;
+      case 'hottub':
+        n.x = W + rand(0, 200); n.y = 0; break;
+      case 'rooftop':
+        n.x = W + rand(0, 200); n.y = 0; break;
+      case 'koolaid':
+        // Big capybara head bursting from a building window — uses mid layer.
+        n.x = W + rand(80, 240); n.y = rand(120, 230); break;
+      case 'balloon':
+        n.x = W + 60; n.y = rand(40, 140); n.vx = -rand(12, 22); break;
+      case 'plane':
+        n.x = W + 80; n.y = rand(50, 120); n.vx = -rand(80, 110); break;
+      case 'ufo':
+        n.x = W + 80; n.y = rand(60, 160); n.vx = -rand(30, 50); break;
+      case 'cloud':
+        n.x = W + 100; n.y = rand(30, 100); n.vx = -rand(8, 16); break;
+    }
+    npcs.push(n);
+  }
+
+  function spawnTelegraph(y) {
+    telegraphs.push({ x: W - 6, y, life: 1.0, max: 1.0 });
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -518,15 +544,18 @@
       nextPickupDist -= worldSpeed * dt;
       if (nextSpawnDist <= 0) {
         spawnObstacle();
+        // visual telegraph at the spawn y so the player gets a moment of warning
+        const last = obstacles[obstacles.length - 1];
+        if (last) spawnTelegraph(last.y + last.h * 0.5);
         // gap shrinks with speed, but stays generous
         const t = (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
-        const minGap = lerp(440, 280, t);
-        const maxGap = lerp(720, 460, t);
+        const minGap = lerp(480, 320, t);
+        const maxGap = lerp(760, 520, t);
         nextSpawnDist = rand(minGap, maxGap);
       }
       if (nextPickupDist <= 0) {
         spawnPickup();
-        nextPickupDist = rand(380, 720);
+        nextPickupDist = rand(360, 700);
       }
     }
 
@@ -608,17 +637,45 @@
       if (p.taken || p.x + p.w < -40) pickups.splice(i, 1);
     }
 
-    // ── Background NPCs: stream them through the mid layer
+    // ── Background NPCs: each kind moves at its own pace
     for (let i = npcs.length - 1; i >= 0; i--) {
       const n = npcs[i];
-      const layerSpeed = n.kind === 'sidewalk' ? 0.45 : 0.18; // matches near/mid parallax
-      n.x -= worldSpeed * dt * layerSpeed;
+      let dx = 0, dy = 0;
+      switch (n.kind) {
+        case 'sidewalk': dx = -worldSpeed * dt * 0.45; break;
+        case 'hottub':   dx = -worldSpeed * dt * 0.18; break;
+        case 'rooftop':  dx = -worldSpeed * dt * 0.18; break;
+        case 'koolaid':  dx = -worldSpeed * dt * 0.18; break;
+        // Sky NPCs drift independently of world speed for a dreamier feel
+        case 'balloon':  dx = (n.vx || -16) * dt; dy = Math.sin(n.phase * 0.6) * 6 * dt; break;
+        case 'plane':    dx = (n.vx || -95) * dt; break;
+        case 'ufo':      dx = (n.vx || -40) * dt; dy = Math.sin(n.phase * 1.4) * 14 * dt; break;
+        case 'cloud':    dx = (n.vx || -12) * dt; break;
+      }
+      n.x += dx; n.y += dy;
       n.phase += dt * 4;
-      if (n.x < -120) npcs.splice(i, 1);
+      // wider cull margin for plane (long banner) and koolaid (large head)
+      const cull = n.kind === 'plane' ? 320 : n.kind === 'koolaid' ? 200 : 140;
+      if (n.x < -cull) npcs.splice(i, 1);
     }
-    // Continuously top up NPC populations so the world is never empty
+    // Continuously top up NPC populations so the world is never empty.
+    // Ground / mid layer:
     if (countNpc('sidewalk') < 2 && Math.random() < dt * 0.6) spawnNpc('sidewalk');
     if (countNpc('hottub')   < 2 && Math.random() < dt * 0.4) spawnNpc('hottub');
+    if (countNpc('rooftop')  < 2 && Math.random() < dt * 0.3) spawnNpc('rooftop');
+    if (countNpc('koolaid')  < 1 && Math.random() < dt * 0.08) spawnNpc('koolaid');
+    // Sky layer (rarer, the silly memey ones):
+    if (countNpc('balloon')  < 1 && Math.random() < dt * 0.18) spawnNpc('balloon');
+    if (countNpc('plane')    < 1 && Math.random() < dt * 0.12) spawnNpc('plane');
+    if (countNpc('ufo')      < 1 && Math.random() < dt * 0.08) spawnNpc('ufo');
+    if (countNpc('cloud')    < 2 && Math.random() < dt * 0.25) spawnNpc('cloud');
+
+    // ── Telegraphs (incoming-obstacle alerts on the right edge)
+    for (let i = telegraphs.length - 1; i >= 0; i--) {
+      const t = telegraphs[i];
+      t.life -= dt;
+      if (t.life <= 0) telegraphs.splice(i, 1);
+    }
 
     // ── Tutorial hint fades
     if (hintJumpDone)  hintJumpAlpha  = Math.max(0, hintJumpAlpha  - dt * 1.5);
@@ -690,14 +747,19 @@
     ctx.translate(sx, sy);
 
     drawSky();
+    drawSkyNpcs();         // balloon, plane, ufo, cloud — silly memey stuff
     drawFarBuildings();
+    drawRooftopNpcs();     // capybara squads on building tops
     drawMidBuildings();
+    drawKoolaidNpcs();     // giant capybara head bursting out a window
     drawHotTubNpcs();
     drawNearProps();
     drawSidewalkNpcs();
     drawRoad();
+    drawDangerLane();      // subtle tint that makes ground obstacles pop
     drawPickups();
     drawObstacles();
+    drawTelegraphs();      // incoming-obstacle alerts on the right edge
     drawTruck();
     drawParticles();
     drawPopups();
@@ -863,8 +925,13 @@
   function drawFire(o) {
     const x = o.x, y = o.y, w = o.w, h = o.h;
     const wob = Math.sin(o.phase) * 3;
-    // outer flame
     ctx.save();
+    // dark base shadow on the road for extra contrast
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(x + w/2, y + h + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // outer flame
     ctx.fillStyle = '#ff5a3c';
     ctx.beginPath();
     ctx.moveTo(x + w/2, y + h);
@@ -872,6 +939,7 @@
     ctx.bezierCurveTo(x + w*0.8, y + h*0.1, x + w + 4 - wob, y + h*0.5, x + w/2, y + h);
     ctx.closePath();
     ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 3);
     // inner
     ctx.fillStyle = '#ffb14c';
     ctx.beginPath();
@@ -880,7 +948,6 @@
     ctx.bezierCurveTo(x + w*0.7, y + h*0.25, x + w - 8, y + h*0.6, x + w/2, y + h);
     ctx.closePath();
     ctx.fill();
-    // outline
     outlineLast(ctx, '#1a0f3a', 2);
     ctx.restore();
   }
@@ -906,17 +973,22 @@
   function drawHydrant(o) {
     const x = o.x, y = o.y, w = o.w, h = o.h;
     ctx.save();
+    // base shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(x + w/2, y + h + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
     // body — chrome steel so it clearly reads as "object" not "fire"
     ctx.fillStyle = '#c7cbd6';
     rrect(x + 4, y + 10, w - 8, h - 16, 6); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
+    outlineLast(ctx, '#1a0f3a', 3);
     // dark stripe
     ctx.fillStyle = '#5a607a';
     ctx.fillRect(x + 4, y + h * 0.5, w - 8, 6);
     // top cap (deep teal)
     ctx.fillStyle = '#2f6f7a';
     rrect(x + 8, y, w - 16, 14, 4); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
+    outlineLast(ctx, '#1a0f3a', 3);
     // side nozzles
     ctx.fillStyle = '#1a0f3a';
     ctx.fillRect(x - 2, y + h * 0.55, 6, 8);
@@ -933,13 +1005,18 @@
   function drawCone(o) {
     const x = o.x, y = o.y, w = o.w, h = o.h;
     ctx.save();
+    // base shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(x + w/2, y + h + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = '#ffb14c';
     ctx.beginPath();
     ctx.moveTo(x + w * 0.5, y);
     ctx.lineTo(x + w, y + h - 6);
     ctx.lineTo(x, y + h - 6);
     ctx.closePath(); ctx.fill();
-    outlineLast(ctx, '#1a0f3a', 2);
+    outlineLast(ctx, '#1a0f3a', 3);
     // stripes
     ctx.fillStyle = '#fff7e0';
     ctx.fillRect(x + 6, y + h * 0.45, w - 12, 5);
@@ -1354,6 +1431,297 @@
     ctx.beginPath(); ctx.arc(cx, cy - s * 0.78, s * 0.05, 0, Math.PI * 2); ctx.fill();
     ctx.fillRect(cx - s * 0.05, cy - s * 0.83, s * 0.1, s * 0.02);
     ctx.restore();
+  }
+
+  // ─── Silly sky capybaras ───────────────────────────────────────────────
+  function drawSkyNpcs() {
+    for (const n of npcs) {
+      switch (n.kind) {
+        case 'cloud':   drawCloudCapy(n.x, n.y, n.phase); break;
+        case 'balloon': drawBalloonCapy(n.x, n.y, n.phase); break;
+        case 'plane':   drawPlaneCapy(n.x, n.y, n.phase); break;
+        case 'ufo':     drawUfoCapy(n.x, n.y, n.phase); break;
+      }
+    }
+  }
+
+  function drawCloudCapy(cx, cy, phase) {
+    // Cloud shaped like a capybara head — three big white puffs forming the silhouette
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#fff7e0';
+    // body of the cloud
+    ctx.beginPath(); ctx.ellipse(cx, cy, 50, 22, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx - 22, cy - 8, 18, 14, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + 22, cy - 8, 18, 14, 0, 0, Math.PI * 2); ctx.fill();
+    // ears
+    ctx.beginPath(); ctx.ellipse(cx - 30, cy - 18, 8, 6, -0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + 30, cy - 18, 8, 6, 0.3, 0, Math.PI * 2); ctx.fill();
+    // eyes + lazy mouth
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#3a1d77';
+    ctx.beginPath(); ctx.arc(cx - 12, cy - 4, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 12, cy - 4, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#3a1d77';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, cy + 6);
+    ctx.quadraticCurveTo(cx, cy + 10, cx + 5, cy + 6);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawBalloonCapy(cx, cy, phase) {
+    ctx.save();
+    // bobbing rope sway
+    const sway = Math.sin(phase * 0.7) * 4;
+
+    // balloon: capybara face shape (giant tan ellipse) with ears
+    const bx = cx + sway * 0.4, by = cy;
+    ctx.fillStyle = '#c79a5e';
+    ctx.beginPath(); ctx.ellipse(bx, by, 46, 52, 0, 0, Math.PI * 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2.5);
+    // ears
+    ctx.fillStyle = '#c79a5e';
+    ctx.beginPath(); ctx.ellipse(bx - 36, by - 36, 14, 10, -0.4, 0, Math.PI * 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    ctx.beginPath(); ctx.ellipse(bx + 36, by - 36, 14, 10, 0.4, 0, Math.PI * 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // beard
+    ctx.fillStyle = '#fff7e0';
+    ctx.beginPath(); ctx.ellipse(bx, by + 22, 30, 18, 0, 0, Math.PI * 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // eyes
+    ctx.fillStyle = '#1a0f3a';
+    ctx.beginPath(); ctx.arc(bx - 16, by - 4, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx + 16, by - 4, 3, 0, Math.PI * 2); ctx.fill();
+    // tiny smile
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(bx - 6, by + 10); ctx.quadraticCurveTo(bx, by + 14, bx + 6, by + 10);
+    ctx.stroke();
+    // ropes
+    const ropeX = bx, ropeY = by + 40;
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(ropeX - 14, ropeY); ctx.lineTo(ropeX - 14, ropeY + 18);
+    ctx.moveTo(ropeX + 14, ropeY); ctx.lineTo(ropeX + 14, ropeY + 18);
+    ctx.stroke();
+    // basket
+    ctx.fillStyle = '#7a4a2a';
+    rrect(ropeX - 18, ropeY + 18, 36, 14, 3); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // basket weave
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(ropeX - 18 + i * 9, ropeY + 18);
+      ctx.lineTo(ropeX - 18 + i * 9, ropeY + 32);
+      ctx.stroke();
+    }
+    // passenger capybara peeking out
+    drawCapybara(ropeX, ropeY + 12, 9, { helmet: 'none', skin: '#a87544' });
+    ctx.restore();
+  }
+
+  function drawPlaneCapy(cx, cy, phase) {
+    ctx.save();
+    // plane body
+    ctx.fillStyle = '#fff7e0';
+    rrect(cx - 18, cy - 8, 36, 16, 6); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // nose
+    ctx.fillStyle = '#ff5a3c';
+    ctx.beginPath();
+    ctx.moveTo(cx + 18, cy - 8);
+    ctx.lineTo(cx + 28, cy);
+    ctx.lineTo(cx + 18, cy + 8);
+    ctx.closePath(); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // tail fin
+    ctx.fillStyle = '#ff5a3c';
+    ctx.beginPath();
+    ctx.moveTo(cx - 18, cy - 8);
+    ctx.lineTo(cx - 26, cy - 18);
+    ctx.lineTo(cx - 14, cy - 8);
+    ctx.closePath(); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // wing
+    ctx.fillStyle = '#cccccc';
+    rrect(cx - 8, cy + 2, 18, 5, 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 1.5);
+    // cockpit window with tiny capybara
+    ctx.fillStyle = '#a8e6ff';
+    ctx.beginPath(); ctx.arc(cx + 6, cy - 2, 6, 0, Math.PI * 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 1.5);
+    drawCapybara(cx + 6, cy - 1, 5, { helmet: 'none', skin: '#a87544' });
+    // propeller spinning
+    const spin = (phase * 3) % (Math.PI * 2);
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + 28 + Math.cos(spin) * 6,        cy + Math.sin(spin) * 6);
+    ctx.lineTo(cx + 28 + Math.cos(spin + Math.PI) * 6, cy + Math.sin(spin + Math.PI) * 6);
+    ctx.stroke();
+    // BANNER — towed behind the plane
+    const bannerX = cx - 18 - 80;
+    const bannerY = cy;
+    // tow line
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - 18, cy);
+    ctx.lineTo(bannerX + 80, bannerY);
+    ctx.stroke();
+    // banner background
+    ctx.fillStyle = '#ffe24c';
+    rrect(bannerX, bannerY - 11, 80, 22, 4); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // banner text
+    ctx.fillStyle = '#1a0f3a';
+    ctx.font = 'bold 12px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('RIZZLE 4 PREZ', bannerX + 40, bannerY + 4);
+    ctx.restore();
+  }
+
+  function drawUfoCapy(cx, cy, phase) {
+    ctx.save();
+    // dome
+    ctx.fillStyle = '#a8e6ff';
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath(); ctx.ellipse(cx, cy - 4, 18, 14, 0, Math.PI, 0); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    ctx.globalAlpha = 1;
+    // capybara at the controls
+    drawCapybara(cx, cy - 4, 10, { helmet: 'none', skin: '#a87544' });
+    // saucer body
+    ctx.fillStyle = '#cfd6e6';
+    ctx.beginPath(); ctx.ellipse(cx, cy + 2, 34, 8, 0, 0, Math.PI * 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 2);
+    // lights
+    const lightOn = ((performance.now() / 150) | 0) % 2 === 0;
+    ctx.fillStyle = lightOn ? '#ffe24c' : '#ff5a3c';
+    ctx.beginPath(); ctx.arc(cx - 18, cy + 2, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,      cy + 4, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 18, cy + 2, 2.5, 0, Math.PI * 2); ctx.fill();
+    // tractor beam abducting an orange
+    ctx.fillStyle = 'rgba(168, 230, 255, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, cy + 8);
+    ctx.lineTo(cx - 22, cy + 50);
+    ctx.lineTo(cx + 22, cy + 50);
+    ctx.lineTo(cx + 12, cy + 8);
+    ctx.closePath(); ctx.fill();
+    // orange being beamed up (small)
+    const bob = Math.sin(phase * 2) * 3;
+    ctx.fillStyle = '#ff8a1f';
+    ctx.beginPath(); ctx.arc(cx, cy + 36 + bob, 7, 0, Math.PI * 2); ctx.fill();
+    outlineLast(ctx, '#1a0f3a', 1.5);
+    ctx.fillStyle = '#3fae3a';
+    ctx.beginPath();
+    ctx.moveTo(cx + 1, cy + 30 + bob);
+    ctx.quadraticCurveTo(cx + 5, cy + 26 + bob, cx + 6, cy + 30 + bob);
+    ctx.quadraticCurveTo(cx + 3, cy + 30 + bob, cx + 1, cy + 30 + bob);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  // ─── Rooftop squads & koolaid heads ───────────────────────────────────
+  function drawRooftopNpcs() {
+    // Plant capybara squads on a virtual rooftop line above mid buildings.
+    // We don't perfectly attach to a specific building since they parallax
+    // at a slightly different cadence — the eye reads it fine.
+    for (const n of npcs) {
+      if (n.kind !== 'rooftop') continue;
+      const x = n.x;
+      const roofY = GROUND_Y - 160;
+      // little roof platform under them so they don't appear to float
+      ctx.save();
+      ctx.fillStyle = '#1a0f3a';
+      ctx.fillRect(x - 6, roofY + 8, 64, 3);
+      ctx.restore();
+      // 3 capybara silhouettes side-by-side
+      for (let i = 0; i < 3; i++) {
+        drawCapybara(x + i * 18, roofY - 2, 11, {
+          helmet: i === 1 ? 'fire' : 'none',
+          arm: i === 2 ? 'wave' : null,
+          skin: ['#a87544', '#b0855a', '#9e6c3e'][i],
+        });
+      }
+    }
+  }
+
+  function drawKoolaidNpcs() {
+    for (const n of npcs) {
+      if (n.kind !== 'koolaid') continue;
+      // window frame
+      ctx.save();
+      ctx.fillStyle = '#1a0f3a';
+      ctx.fillRect(n.x - 38, n.y - 38, 76, 76);
+      ctx.fillStyle = '#a8e6ff';
+      ctx.fillRect(n.x - 34, n.y - 34, 68, 68);
+      // shards of broken window
+      ctx.fillStyle = '#fff7e0';
+      ctx.beginPath();
+      ctx.moveTo(n.x - 34, n.y - 34); ctx.lineTo(n.x - 18, n.y - 28); ctx.lineTo(n.x - 30, n.y - 18);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(n.x + 34, n.y - 34); ctx.lineTo(n.x + 18, n.y - 30); ctx.lineTo(n.x + 30, n.y - 16);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      // GIANT capybara head bursting out, screaming "OH YEAH!"
+      drawCapybara(n.x, n.y + 4, 32, { helmet: 'none', arm: 'wave', skin: '#b08252' });
+      // shout bubble
+      ctx.save();
+      const blink = (Math.sin(n.phase * 1.5) * 0.5 + 0.5);
+      ctx.globalAlpha = 0.5 + blink * 0.5;
+      ctx.fillStyle = '#ffe24c';
+      rrect(n.x + 28, n.y - 30, 64, 22, 5); ctx.fill();
+      outlineLast(ctx, '#1a0f3a', 1.5);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#1a0f3a';
+      ctx.font = 'bold 13px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('OH YEAH!', n.x + 60, n.y - 16);
+      ctx.restore();
+    }
+  }
+
+  // ─── Danger lane + telegraph chevrons ─────────────────────────────────
+  function drawDangerLane() {
+    // Subtle vignette directly above the road surface so ground-level
+    // obstacles read clearly against the busy mid background.
+    ctx.save();
+    const grd = ctx.createLinearGradient(0, GROUND_Y - 60, 0, GROUND_Y);
+    grd.addColorStop(0, 'rgba(10, 6, 35, 0)');
+    grd.addColorStop(1, 'rgba(10, 6, 35, 0.55)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, GROUND_Y - 60, W, 60);
+    ctx.restore();
+  }
+
+  function drawTelegraphs() {
+    for (const t of telegraphs) {
+      const a = clamp(t.life / t.max, 0, 1);
+      const blink = 0.5 + 0.5 * Math.sin(performance.now() / 60);
+      ctx.save();
+      ctx.globalAlpha = a * (0.6 + blink * 0.4);
+      ctx.fillStyle = '#ffe24c';
+      // chevron pointing left ◀
+      ctx.beginPath();
+      ctx.moveTo(W - 6,  t.y);
+      ctx.lineTo(W - 20, t.y - 12);
+      ctx.lineTo(W - 14, t.y);
+      ctx.lineTo(W - 20, t.y + 12);
+      ctx.closePath();
+      ctx.fill();
+      outlineLast(ctx, '#1a0f3a', 1.5);
+      ctx.restore();
+    }
   }
 
   function drawHotTubNpcs() {
