@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v8.2-livetitle';
+  const BUILD = 'v8.4-rizzleboards';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -363,6 +363,34 @@
       parallax: 0.85, wrap: 3600,
       draw: drawKoolAidCapy,
     });
+
+    // ── Floating embers — drift upward continuously, atmospheric only ────
+    // No parallax, no wrap — they respawn at the bottom on their own.
+    for (let i = 0; i < 14; i++) {
+      Cosmetics.add({
+        layer: 'farBg',
+        x: rand(0, W), y: rand(GROUND_Y - 200, GROUND_Y),
+        vx: rand(-6, 6), vy: rand(-40, -20),
+        parallax: 0,
+        emberKind: i % 3, // small/medium/large
+        emberColor: ['#ff8a3c', '#ffd24a', '#ff5a3c'][i % 3],
+        draw: drawFloatingEmber,
+        respawnX: NaN, // signal "respawn within bounds"
+        ember: true,
+      });
+    }
+
+    // ── Rizzle fan billboard — full-bleed mascot poster, plural ──────────
+    const RIZZLE_SPACING = 1300;
+    for (let i = 0; i < 3; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: 900 + i * RIZZLE_SPACING,
+        y: GROUND_Y - 130 - (i % 2) * 16,
+        parallax: 0.55, wrap: RIZZLE_SPACING * 2,
+        draw: drawRizzleFanBillboard,
+      });
+    }
   }
 
   // ───────────────────────────────────────────────────────────────────
@@ -793,6 +821,112 @@
     ctx.restore();
   }
 
+  // Floating ember — drifts upward, slowly fades + flickers.
+  function drawFloatingEmber(c) {
+    const flicker = 0.6 + 0.4 * Math.sin(c.phase * 6 + c.x);
+    const size = c.emberKind === 0 ? 1.5 : c.emberKind === 1 ? 2.5 : 3.4;
+    ctx.save();
+    ctx.globalAlpha = flicker * 0.9;
+    ctx.globalCompositeOperation = 'lighter';
+    // glow
+    const grad = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, size * 4);
+    grad.addColorStop(0, c.emberColor);
+    grad.addColorStop(1, 'rgba(255, 90, 60, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(c.x, c.y, size * 4, 0, Math.PI * 2); ctx.fill();
+    // core
+    ctx.fillStyle = '#fff7e0';
+    ctx.beginPath(); ctx.arc(c.x, c.y, size, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Full-bleed Rizzle fan billboard — featuring the hero himself in poster form.
+  function drawRizzleFanBillboard(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    // double pole
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(x - 56, y + 50, 4, 60);
+    ctx.fillRect(x + 56, y + 50, 4, 60);
+    // poster bg with bevel
+    ctx.fillStyle = '#1a0f3a';
+    rrect(x - 70, y - 6, 140, 64, 6); ctx.fill();
+    ctx.fillStyle = '#ff5a3c';
+    rrect(x - 66, y - 2, 132, 56, 4); ctx.fill();
+    // sun rays behind portrait
+    ctx.save();
+    ctx.translate(x - 14, y + 26);
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#ffd24a';
+    for (let i = 0; i < 8; i++) {
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(0, -2, 36, 4);
+    }
+    ctx.restore();
+    // Rizzle face on the left
+    drawRizzleMini(x - 14, y + 26, 18);
+    // text on the right
+    ctx.fillStyle = '#fff7e0';
+    ctx.font = 'bold 13px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('RIZZLE', x + 12, y + 18);
+    ctx.fillText('4  FIRE', x + 12, y + 36);
+    ctx.fillStyle = '#ffd24a';
+    ctx.font = 'bold 9px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.fillText('CHIEF  2026', x + 12, y + 50);
+    // blinker
+    const blink = (performance.now() / 400 + x * 0.01) % 2 < 1;
+    ctx.fillStyle = blink ? '#ffe24c' : 'rgba(255,226,76,0.3)';
+    ctx.beginPath(); ctx.arc(x - 70, y - 6, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 70, y - 6, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Tiny Rizzle portrait — beard, helmet, focused eyes.
+  function drawRizzleMini(cx, cy, s) {
+    const outline = '#1a0f3a';
+    const skin = '#b4884f';
+    ctx.save();
+    // head
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, s * 0.82, s * 0.74, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 1.8; ctx.strokeStyle = outline;
+    ctx.stroke();
+    // beard
+    ctx.fillStyle = '#fff7e0';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + s * 0.55, s * 0.6, s * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // eyes
+    ctx.fillStyle = outline;
+    ctx.beginPath(); ctx.arc(cx - s * 0.28, cy - s * 0.1, s * 0.1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + s * 0.28, cy - s * 0.1, s * 0.1, 0, Math.PI * 2); ctx.fill();
+    // helmet brim
+    ctx.fillStyle = '#d94028';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - s * 0.6, s * 1.0, s * 0.32, 0, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillRect(cx - s * 0.95, cy - s * 0.6, s * 1.9, 4);
+    ctx.strokeRect(cx - s * 0.95, cy - s * 0.6, s * 1.9, 4);
+    // shield
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - s * 0.95);
+    ctx.lineTo(cx - s * 0.18, cy - s * 0.85);
+    ctx.lineTo(cx - s * 0.18, cy - s * 0.65);
+    ctx.lineTo(cx, cy - s * 0.5);
+    ctx.lineTo(cx + s * 0.18, cy - s * 0.65);
+    ctx.lineTo(cx + s * 0.18, cy - s * 0.85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Kool-aid style capybara — big chonky capy "OH YEAH!" on the sidewalk.
   function drawKoolAidCapy(c) {
     const x = c.x, y = c.y;
@@ -900,7 +1034,16 @@
         c.phase += dt;
         c.x += c.vx * dt - worldSpeed * dt * c.parallax;
         c.y += c.vy * dt;
-        if (c.wrap) {
+        if (c.ember) {
+          // floating embers drift upward and respawn near ground when
+          // they cross the top of the world (or drift off-screen).
+          if (c.y < -20 || c.x < -40 || c.x > W + 40) {
+            c.x = Math.random() * W;
+            c.y = GROUND_Y - 10 + Math.random() * 30;
+            c.vx = (Math.random() - 0.5) * 12;
+            c.vy = -20 - Math.random() * 30;
+          }
+        } else if (c.wrap) {
           // tile-like: wrap around horizontally
           if (c.x < -c.wrap) c.x += c.wrap * 2;
         } else if (typeof c.respawnX === 'number') {

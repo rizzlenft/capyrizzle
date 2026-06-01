@@ -180,7 +180,7 @@ html, body {
 
 .best-chase {
   position: absolute;
-  left: 12px;
+  right: 12px;
   top: 60px;
   font-size: clamp(11px, 1.7vmin, 13px);
   letter-spacing: 0.18em;
