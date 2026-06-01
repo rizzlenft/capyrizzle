@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v7.4';
+  const BUILD = 'v8.2-livetitle';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -190,6 +190,669 @@
   };
 
   // ═════════════════════════════════════════════════════════════════════
+  //   COSMETIC SCENE SEEDING
+  //   ───────────────────────
+  //   Decorative furniture that loops behind the gameplay. Drawn through
+  //   the Cosmetics registry — game logic never touches anything in here.
+  //
+  //   Two flavors of cosmetic:
+  //     • TILED (`wrap`) — coordinate wraps horizontally on a fixed period.
+  //       Use for things that repeat forever (smoke plumes, billboards).
+  //     • RESPAWN (`respawnX`) — drifts left, teleports back to respawnX
+  //       when off-screen. Use for things you want to randomize positions.
+  // ═════════════════════════════════════════════════════════════════════
+  function seedCosmetics() {
+    // ── Smoke columns rising from the burning city ──────────────────
+    const SMOKE_SPACING = 280;
+    for (let i = 0; i < 10; i++) {
+      Cosmetics.add({
+        layer: 'skylineBg',
+        x: i * SMOKE_SPACING + rand(-80, 80),
+        y: GROUND_Y - 120,
+        parallax: 0.18,
+        wrap: SMOKE_SPACING * 5,
+        scale: rand(0.7, 1.4),
+        tint: ['#7a5a8a', '#a36a8a', '#6e4d8e', '#b67c9a'][i % 4],
+        draw: drawSmokeColumn,
+      });
+    }
+
+    // ── Sky NPCs — capybaras spread across the whole sky ─────────────
+    // Hot-air balloons at different heights / colors / speeds.
+    const BALLOONS = [
+      { y:  60, vx: -22, color: '#ff5a8a' },
+      { y: 110, vx: -14, color: '#4ec5ff' },
+      { y:  90, vx: -18, color: '#ffd24a' },
+      { y:  40, vx: -12, color: '#a8e6ff' },
+      { y: 130, vx: -16, color: '#ff8a3c' },
+    ];
+    BALLOONS.forEach((b, i) => {
+      Cosmetics.add({
+        layer: 'sky',
+        x: W + 200 + i * 380, y: b.y,
+        vx: b.vx, parallax: 0,
+        respawnX: W + rand(1200, 2400),
+        balloonColor: b.color,
+        bobAmp: rand(4, 8), bobSpeed: rand(0.7, 1.4),
+        draw: drawBalloonCapy,
+      });
+    });
+    // Hang-glider capys gliding both directions.
+    Cosmetics.add({
+      layer: 'sky',
+      x: -120, y: 50, vx: 16, parallax: 0,
+      respawnX: -rand(900, 1500),
+      draw: drawGliderCapy,
+    });
+    Cosmetics.add({
+      layer: 'sky',
+      x: W + 600, y: 75, vx: -12, parallax: 0,
+      respawnX: W + rand(1000, 1800),
+      draw: drawGliderCapy,
+    });
+    // Lazy capy clouds — capybara-shaped clouds drifting by.
+    for (let i = 0; i < 4; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: rand(0, W), y: rand(30, 160),
+        vx: rand(-9, -4), parallax: 0,
+        respawnX: W + rand(400, 1400),
+        cloudScale: rand(0.7, 1.3),
+        draw: drawCloudCapy,
+      });
+    }
+    // The flying capy blimp — slow, huge, with a banner.
+    Cosmetics.add({
+      layer: 'sky',
+      x: W + 800, y: 50, vx: -10, parallax: 0,
+      respawnX: W + rand(2400, 4000),
+      draw: drawCapyBlimp,
+    });
+    // UFO with capybara abductee.
+    Cosmetics.add({
+      layer: 'sky',
+      x: W + 1500, y: 110, vx: -28, parallax: 0,
+      respawnX: W + rand(2200, 3800),
+      bobAmp: 14, bobSpeed: 2.8,
+      draw: drawUfoCapy,
+    });
+
+    // ── Billboards on rooftops in the FG skyline ────────────────────
+    // Each is a silly ad. Slow parallax, wraps around so they loop.
+    const ADS = [
+      'VOTE  CAPY', 'EAT  WATERMELON', 'STAY  WET', 'SOAK  YOUR  ROOTS',
+      'NEW  RIVER  IPA', 'CAPY  4  MAYOR', 'TRUST  RIZZLE', 'BIG  TEETH',
+      'HOT  TUB  WKLY', 'BLORBO  4  PRES', 'CAPY  CASINO', 'I  ♥  HAY',
+    ];
+    const BILL_SPACING = 520;
+    for (let i = 0; i < 8; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: 200 + i * BILL_SPACING,
+        y: GROUND_Y - 110 - (i % 3) * 22,
+        parallax: 0.55,
+        wrap: BILL_SPACING * 4,
+        text: ADS[i % ADS.length],
+        accent: ['#ff5a8a', '#ffd24a', '#a8e6ff', '#ff8a3c'][i % 4],
+        draw: drawCapyBillboard,
+      });
+    }
+
+    // ── Window NPC capys peeking out of buildings ───────────────────
+    // Many of them, placed deterministically in the fg skyline.
+    const WIN_SPACING = 130;
+    for (let i = 0; i < 18; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: -60 + i * WIN_SPACING + (i * 71) % 80,
+        y: GROUND_Y - 40 - (i % 5) * 22,
+        parallax: 0.55,
+        wrap: WIN_SPACING * 9,
+        wave: (i * 13) % 17 < 8,
+        draw: drawWindowCapy,
+      });
+    }
+
+    // ── Rooftop sign-holders — protesters / cheerleaders for Rizzle ─
+    const ROOF_SPACING = 360;
+    const ROOF_TEXTS = ['GO  RIZZLE', 'PUT  IT  OUT', 'HERO', 'WE  ♥  CAPY', 'SAVE  US', 'MORE  WATER', 'SPLASH'];
+    for (let i = 0; i < 6; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: 380 + i * ROOF_SPACING,
+        y: GROUND_Y - 90,
+        parallax: 0.55,
+        wrap: ROOF_SPACING * 5,
+        text: ROOF_TEXTS[i % ROOF_TEXTS.length],
+        accent: '#fff7e0',
+        draw: drawRooftopCheerCapy,
+      });
+    }
+
+    // ── Hot-tub capys — chilling in a rooftop hot tub ───────────────
+    Cosmetics.add({
+      layer: 'skylineFg',
+      x: 800, y: GROUND_Y - 105,
+      parallax: 0.55, wrap: 2400,
+      draw: drawHotTubCapys,
+    });
+    Cosmetics.add({
+      layer: 'skylineFg',
+      x: 2200, y: GROUND_Y - 95,
+      parallax: 0.55, wrap: 2400,
+      draw: drawHotTubCapys,
+    });
+
+    // ── Sidewalk capys — many small NPCs at street level ────────────
+    const SIDE_SPACING = 260;
+    for (let i = 0; i < 9; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 600 + i * SIDE_SPACING,
+        y: GROUND_Y - 16,
+        parallax: 0.85,
+        wrap: SIDE_SPACING * 6,
+        pose: i % 4, // 0=wave 1=cheer 2=panic 3=skate
+        draw: drawSidewalkCapy,
+      });
+    }
+    // The KOOL-AID capy — bursts through a wall on the sidewalk occasionally.
+    Cosmetics.add({
+      layer: 'sidewalk',
+      x: 1600, y: GROUND_Y - 28,
+      parallax: 0.85, wrap: 3600,
+      draw: drawKoolAidCapy,
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────────────
+  //   TINY CAPYBARA — shared helper for cosmetic NPCs
+  //   Draws a cute readable capy at given (cx, cy) with size `s` (head radius).
+  //   opts: { hat?, eyeOffset?, mouth?, color? }
+  // ───────────────────────────────────────────────────────────────────
+  function drawTinyCapy(cx, cy, s, opts) {
+    opts = opts || {};
+    const outline = '#1a0f3a';
+    const skin = opts.color || '#b4884f';
+    ctx.save();
+    // head
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, s * 1.05, s * 0.85, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, s * 0.16);
+    ctx.strokeStyle = outline;
+    ctx.stroke();
+    // ears
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.ellipse(cx - s * 0.78, cy - s * 0.5, s * 0.24, s * 0.18, -0.3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx + s * 0.78, cy - s * 0.5, s * 0.24, s * 0.18,  0.3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // snout
+    ctx.fillStyle = '#8c6730';
+    ctx.beginPath(); ctx.ellipse(cx, cy + s * 0.3, s * 0.55, s * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.stroke();
+    // eyes (just dots)
+    ctx.fillStyle = outline;
+    const eo = opts.eyeOffset || 0;
+    ctx.beginPath(); ctx.arc(cx - s * 0.32, cy - s * 0.08 + eo, s * 0.12, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + s * 0.32, cy - s * 0.08 + eo, s * 0.12, 0, Math.PI * 2); ctx.fill();
+    // mouth (a little stroke)
+    ctx.lineWidth = Math.max(1, s * 0.1);
+    ctx.beginPath();
+    if (opts.mouth === 'smile') {
+      ctx.arc(cx, cy + s * 0.42, s * 0.12, 0.1, Math.PI - 0.1);
+    } else if (opts.mouth === 'o') {
+      ctx.arc(cx, cy + s * 0.42, s * 0.1, 0, Math.PI * 2);
+    } else {
+      ctx.moveTo(cx - s * 0.06, cy + s * 0.45);
+      ctx.lineTo(cx + s * 0.06, cy + s * 0.45);
+    }
+    ctx.stroke();
+    if (opts.hat) opts.hat(cx, cy, s);
+    ctx.restore();
+  }
+
+  // ───────────────────────────────────────────────────────────────────
+  //   COSMETIC NPC DRAW FUNCTIONS — invoked by Cosmetics.draw(layer)
+  // ───────────────────────────────────────────────────────────────────
+
+  function drawBalloonCapy(c) {
+    const bobY = Math.sin(c.phase * 1.1) * 6;
+    const x = c.x, y = c.y + bobY;
+    ctx.save();
+    // strings
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - 18, y + 38); ctx.lineTo(x - 8,  y + 56);
+    ctx.moveTo(x + 18, y + 38); ctx.lineTo(x + 8,  y + 56);
+    ctx.stroke();
+    // basket
+    ctx.fillStyle = '#8c6730';
+    rrect(x - 22, y + 56, 44, 22, 4); ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+    ctx.stroke();
+    // weave lines
+    ctx.lineWidth = 1;
+    for (let bx = x - 18; bx < x + 22; bx += 6) {
+      ctx.beginPath(); ctx.moveTo(bx, y + 58); ctx.lineTo(bx, y + 76); ctx.stroke();
+    }
+    // balloon
+    ctx.fillStyle = c.balloonColor || '#ff5a8a';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 28, 36, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // balloon stripe (contrasts with balloon color)
+    ctx.fillStyle = c.balloonColor === '#ffd24a' ? '#ff5a8a' : '#ffd24a';
+    ctx.fillRect(x - 6, y - 36, 12, 72);
+    // sheen
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.ellipse(x - 10, y - 8, 5, 12, -0.3, 0, Math.PI * 2); ctx.fill();
+    // capy peeking out of basket
+    drawTinyCapy(x, y + 56, 9, { mouth: 'smile' });
+    // tiny waving paw
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+    const wave = Math.sin(c.phase * 4) * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(x + 10, y + 52);
+    ctx.lineTo(x + 18 + wave * 4, y + 44 + Math.abs(wave) * 4);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawGliderCapy(c) {
+    const bobY = Math.sin(c.phase * 0.8) * 4;
+    const x = c.x, y = c.y + bobY;
+    ctx.save();
+    // hang glider wing (triangular)
+    ctx.fillStyle = '#4ec5ff';
+    ctx.beginPath();
+    ctx.moveTo(x - 56, y - 12);
+    ctx.lineTo(x + 56, y - 12);
+    ctx.lineTo(x,      y + 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+    ctx.stroke();
+    // wing center strut
+    ctx.beginPath();
+    ctx.moveTo(x, y - 12); ctx.lineTo(x, y + 14);
+    ctx.stroke();
+    // strings to capy
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - 20, y + 4); ctx.lineTo(x - 6, y + 28);
+    ctx.moveTo(x + 20, y + 4); ctx.lineTo(x + 6, y + 28);
+    ctx.stroke();
+    // capy dangling
+    drawTinyCapy(x, y + 32, 10, { mouth: 'o' });
+    ctx.restore();
+  }
+
+  function drawWindowCapy(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    // window frame
+    ctx.fillStyle = '#1a0f3a';
+    rrect(x - 14, y - 14, 28, 28, 2); ctx.fill();
+    // warm interior glow
+    const glow = ctx.createRadialGradient(x, y, 2, x, y, 16);
+    glow.addColorStop(0, 'rgba(255, 200, 120, 0.95)');
+    glow.addColorStop(1, 'rgba(255, 200, 120, 0.3)');
+    ctx.fillStyle = glow;
+    rrect(x - 12, y - 12, 24, 24, 2); ctx.fill();
+    // capy peeking
+    drawTinyCapy(x, y + 2, 6, { mouth: 'smile' });
+    // wave (some windows)
+    if (c.wave) {
+      const wave = Math.sin(c.phase * 3) * 0.3;
+      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + 4);
+      ctx.lineTo(x + 12 + wave * 3, y - 4 + Math.abs(wave) * 3);
+      ctx.stroke();
+    }
+    // window cross
+    ctx.strokeStyle = 'rgba(26, 15, 58, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 14); ctx.lineTo(x, y + 14);
+    ctx.moveTo(x - 14, y); ctx.lineTo(x + 14, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawRooftopCheerCapy(c) {
+    const x = c.x, y = c.y;
+    const bob = Math.sin(c.phase * 4) * 2;
+    ctx.save();
+    // little capy
+    drawTinyCapy(x, y - 4 + bob, 9, { mouth: 'o' });
+    // arms up holding sign
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y + 2 + bob); ctx.lineTo(x - 14, y - 18 + bob);
+    ctx.moveTo(x + 6, y + 2 + bob); ctx.lineTo(x + 14, y - 18 + bob);
+    ctx.stroke();
+    // sign
+    ctx.fillStyle = c.accent || '#fff7e0';
+    rrect(x - 28, y - 28 + bob, 56, 14, 3); ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    ctx.fillStyle = '#1a0f3a';
+    ctx.font = 'bold 9px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(c.text, x, y - 19 + bob);
+    ctx.restore();
+  }
+
+  function drawCapyBillboard(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    // pole
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(x - 2, y, 4, 60);
+    // board background
+    ctx.fillStyle = c.accent || '#ffd24a';
+    rrect(x - 70, y - 38, 140, 44, 6); ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    // tiny capy mascot on the board
+    drawTinyCapy(x - 50, y - 16, 10, { mouth: 'smile' });
+    // ad text
+    ctx.fillStyle = '#1a0f3a';
+    ctx.font = 'bold 13px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(c.text, x + 14, y - 12);
+    // small subtitle line
+    ctx.font = 'bold 8px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(26, 15, 58, 0.7)';
+    ctx.fillText('-- CAPY CO --', x + 14, y - 1);
+    // little blinker on top
+    const blink = (performance.now() / 500 + x * 0.01) % 2 < 1;
+    ctx.fillStyle = blink ? '#ff5a3c' : 'rgba(255,90,60,0.3)';
+    ctx.beginPath(); ctx.arc(x - 60, y - 40, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 60, y - 40, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSidewalkCapy(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    // body (small oval)
+    ctx.fillStyle = '#b4884f';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 13, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    // head
+    drawTinyCapy(x - 10, y - 6, 7, {
+      mouth: c.pose === 2 ? 'o' : 'smile',
+    });
+    // legs
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(x - 6, y + 7, 2, 6);
+    ctx.fillRect(x + 4, y + 7, 2, 6);
+    // pose
+    if (c.pose === 0) {
+      // wave — arm raised
+      const wave = Math.sin(c.phase * 5) * 0.3;
+      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y);
+      ctx.lineTo(x + 12 + wave * 3, y - 10 + Math.abs(wave) * 3);
+      ctx.stroke();
+    } else if (c.pose === 1) {
+      // cheer — both arms up
+      const cheer = Math.abs(Math.sin(c.phase * 6)) * 3;
+      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 12, y - 2); ctx.lineTo(x - 16, y - 12 - cheer);
+      ctx.moveTo(x + 12, y - 2); ctx.lineTo(x + 16, y - 12 - cheer);
+      ctx.stroke();
+    } else if (c.pose === 2) {
+      // panic — arms flailing
+      const flail = Math.sin(c.phase * 9) * 4;
+      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 10, y); ctx.lineTo(x - 16 + flail, y - 8 - Math.abs(flail));
+      ctx.moveTo(x + 10, y); ctx.lineTo(x + 16 - flail, y - 8 - Math.abs(flail));
+      ctx.stroke();
+      // sweat drop
+      ctx.fillStyle = '#a8e6ff';
+      ctx.beginPath();
+      ctx.ellipse(x - 16, y - 14 + flail, 2, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // skateboarding capy — leaning, with board + wheels
+      ctx.fillStyle = '#1a0f3a';
+      rrect(x - 14, y + 11, 28, 3, 1.5); ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x - 10, y + 16, 2.5, 0, Math.PI * 2);
+      ctx.arc(x + 10, y + 16, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      // raised arms holding balance
+      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 12, y - 2); ctx.lineTo(x - 18, y - 6);
+      ctx.moveTo(x + 12, y - 2); ctx.lineTo(x + 18, y - 6);
+      ctx.stroke();
+      // motion lines
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) {
+        ctx.moveTo(x + 18 + i * 3, y + 4); ctx.lineTo(x + 26 + i * 3, y + 4);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Capybara-shaped cloud drifting across the sky.
+  function drawCloudCapy(c) {
+    const x = c.x, y = c.y;
+    const s = c.cloudScale || 1;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#f0e0f8';
+    // body puffs
+    ctx.beginPath();
+    ctx.ellipse(x, y, 40 * s, 22 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(x - 26 * s, y - 4 * s, 18 * s, 14 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 26 * s, y - 4 * s, 18 * s, 14 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 8 * s, y - 14 * s, 22 * s, 14 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // capybara face hint — ears on top, sleepy eyes
+    ctx.fillStyle = '#dccef0';
+    ctx.beginPath();
+    ctx.ellipse(x - 12 * s, y - 22 * s, 6 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 14 * s, y - 22 * s, 6 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(x - 14 * s, y - 6 * s, 4 * s, 1.5);
+    ctx.fillRect(x + 6  * s, y - 6 * s, 4 * s, 1.5);
+    ctx.restore();
+  }
+
+  // Giant capybara blimp with banner — slow & majestic.
+  function drawCapyBlimp(c) {
+    const bobY = Math.sin(c.phase * 0.6) * 5;
+    const x = c.x, y = c.y + bobY;
+    ctx.save();
+    // blimp body
+    ctx.fillStyle = '#c9a566';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 70, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    // belly band
+    ctx.fillStyle = '#8c6730';
+    ctx.fillRect(x - 70, y - 4, 140, 8);
+    ctx.strokeRect(x - 70, y - 4, 140, 8);
+    // little tail fins
+    ctx.fillStyle = '#c9a566';
+    ctx.beginPath();
+    ctx.moveTo(x - 70, y); ctx.lineTo(x - 90, y - 12); ctx.lineTo(x - 90, y + 12); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // capy face on the nose
+    drawTinyCapy(x + 56, y, 11, { mouth: 'smile' });
+    // banner trailing behind
+    ctx.fillStyle = '#fff7e0';
+    rrect(x - 200, y + 30, 120, 26, 4); ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#1a0f3a';
+    ctx.font = 'bold 14px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('GO  RIZZLE!', x - 140, y + 48);
+    // banner rope
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x - 70, y + 6); ctx.lineTo(x - 80, y + 30);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // UFO with a capybara inside (and a beam below).
+  function drawUfoCapy(c) {
+    const bobY = Math.sin(c.phase * 2.4) * 8;
+    const x = c.x, y = c.y + bobY;
+    ctx.save();
+    // light beam (subtle)
+    const beam = ctx.createLinearGradient(x, y + 10, x, y + 80);
+    beam.addColorStop(0, 'rgba(168, 230, 255, 0.4)');
+    beam.addColorStop(1, 'rgba(168, 230, 255, 0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.moveTo(x - 12, y + 6); ctx.lineTo(x + 12, y + 6);
+    ctx.lineTo(x + 32, y + 90); ctx.lineTo(x - 32, y + 90); ctx.closePath();
+    ctx.fill();
+    // saucer base
+    ctx.fillStyle = '#888a9c';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 8, 36, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    // dome
+    ctx.fillStyle = '#a8e6ff';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 18, 14, 0, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    // tiny capy inside the dome
+    drawTinyCapy(x, y - 2, 6, { mouth: 'o' });
+    // saucer lights — blinking
+    const blink = Math.floor(c.phase * 6) % 3;
+    const lightColors = ['#ff5a3c', '#ffd24a', '#4ec5ff'];
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i === blink ? lightColors[i] : 'rgba(255,255,255,0.3)';
+      ctx.beginPath(); ctx.arc(x - 24 + i * 24, y + 12, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Two capybaras chilling in a rooftop hot tub.
+  function drawHotTubCapys(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    // steam puffs
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    for (let i = 0; i < 3; i++) {
+      const ph = c.phase * 1.4 + i * 1.3;
+      const sy = y - 20 - (ph % 2) * 14;
+      ctx.beginPath();
+      ctx.ellipse(x - 12 + i * 12, sy, 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // tub
+    ctx.fillStyle = '#6e3c2a';
+    rrect(x - 28, y - 4, 56, 18, 3); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    // water
+    ctx.fillStyle = '#4ec5ff';
+    rrect(x - 26, y - 2, 52, 8, 2); ctx.fill();
+    // capy heads peeking out
+    drawTinyCapy(x - 14, y + 1, 6, { mouth: 'smile' });
+    drawTinyCapy(x + 12, y + 1, 6, { mouth: 'smile' });
+    // tiny rubber duck between them
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 3, 3.5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 1, y + 1, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ff8a3c';
+    ctx.fillRect(x + 2, y + 1, 2, 1);
+    ctx.restore();
+  }
+
+  // Kool-aid style capybara — big chonky capy "OH YEAH!" on the sidewalk.
+  function drawKoolAidCapy(c) {
+    const x = c.x, y = c.y;
+    const bob = Math.sin(c.phase * 1.5) * 2;
+    ctx.save();
+    // body — big round
+    ctx.fillStyle = '#c9694e';
+    ctx.beginPath();
+    ctx.ellipse(x, y + bob, 22, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    // head on top
+    drawTinyCapy(x, y - 14 + bob, 11, { mouth: 'o' });
+    // arms thrown wide
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(x - 18, y + bob); ctx.lineTo(x - 28, y - 6 + bob);
+    ctx.moveTo(x + 18, y + bob); ctx.lineTo(x + 28, y - 6 + bob);
+    ctx.stroke();
+    // little speech burst
+    ctx.fillStyle = '#fff7e0';
+    ctx.font = 'bold 10px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2.5;
+    ctx.strokeText('OH YEAH', x, y - 30 + bob);
+    ctx.fillText('OH YEAH', x, y - 30 + bob);
+    ctx.restore();
+  }
+
+  // Procedural smoke plume — a stack of soft puffs that sway with phase
+  // and fade out toward the top.
+  function drawSmokeColumn(c) {
+    const baseY = GROUND_Y - 60;
+    const sx = c.x;
+    const scale = c.scale || 1;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    // a hint of ember at the base, sells "something is on fire down there"
+    ctx.fillStyle = 'rgba(255, 130, 50, 0.4)';
+    ctx.beginPath();
+    ctx.ellipse(sx, baseY, 36 * scale, 8 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // puff stack
+    for (let i = 0; i < 9; i++) {
+      const t = i / 8;
+      const py = baseY - i * 26 * scale - 8;
+      const sway = Math.sin(c.phase * 0.5 + i * 0.6) * (4 + i * 2) * scale;
+      const radius = (16 + i * 4) * scale;
+      const alpha = (1 - t) * 0.55;
+      ctx.fillStyle = c.tint;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(sx + sway, py, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ═════════════════════════════════════════════════════════════════════
   //   COSMETICS REGISTRY
   //   ──────────────────
   //   Anything purely decorative goes here. Game logic NEVER touches it.
@@ -212,7 +875,9 @@
   //       phase?: number,               // free animation phase
   //       wrap?: number,                // wrap x by this width (for tile-like cosmetics)
   //       respawnX?: number,            // when off-screen-left, respawn at this x
-  //       draw(c)                       // c = {x, y, phase, t}  ← only API surface
+  //       draw(c)                       // c = the full cosmetic spec
+  //                                       (use c.x / c.y / c.phase plus any
+  //                                       custom fields you stashed on it)
   //     }
   // ═════════════════════════════════════════════════════════════════════
   const Cosmetics = {
@@ -248,7 +913,7 @@
 
     draw(layer) {
       for (const c of this.items) {
-        if (c.layer === layer) c.draw({ x: c.x, y: c.y, phase: c.phase });
+        if (c.layer === layer) c.draw(c);
       }
     },
   };
@@ -509,6 +1174,10 @@
     state.hint.waterDone = tutSeen;
     state.hint.jumpA     = tutSeen ? 0 : 1;
     state.hint.waterA    = tutSeen ? 0 : 1;
+
+    // Wipe + reseed cosmetic furniture (smoke columns, billboards, capys, …).
+    Cosmetics.clear();
+    seedCosmetics();
   }
 
   function startGame() {
@@ -895,7 +1564,16 @@
     }
     if (state.flashWhite > 0) state.flashWhite = Math.max(0, state.flashWhite - dt);
 
-    if (mode === 'title') return;
+    if (mode === 'title') {
+      // Title screen: world drifts slowly so the art is alive behind the menu.
+      const idleSpeed = 110;
+      Cosmetics.update(dt, idleSpeed * 0.5);
+      state.bg.farSkyline += idleSpeed * dt * 0.06;
+      state.bg.road       += idleSpeed * dt * 0.6;
+      // truck idles with subtle bob
+      state.truck.bob += dt * 6;
+      return;
+    }
 
     // Hit freeze frame
     if (state.freezeT > 0) { state.freezeT -= dt; return; }
@@ -1244,69 +1922,208 @@
   }
 
   // ─── Background ───────────────────────────────────────────────────────
+  // Burning-city sunset. Reads top-down as:
+  //   deep navy night → indigo → magenta → ember orange → smoke band on horizon
   function drawSky() {
     const g = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    g.addColorStop(0,    '#1b0f4a');
-    g.addColorStop(0.55, '#3a1d77');
-    g.addColorStop(0.9,  '#8a3a8c');
-    g.addColorStop(1,    '#ff8a3c');
+    g.addColorStop(0.00, '#0c0830');
+    g.addColorStop(0.32, '#1d104f');
+    g.addColorStop(0.58, '#4a1d7a');
+    g.addColorStop(0.82, '#b34186');
+    g.addColorStop(0.94, '#ff7a3c');
+    g.addColorStop(1.00, '#ffb060');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, GROUND_Y);
 
-    // sun disc
+    // Stars — slow twinkle. Procedural & deterministic so they don't pop.
     ctx.save();
-    ctx.fillStyle = 'rgba(255, 220, 120, 0.95)';
-    ctx.beginPath(); ctx.arc(W * 0.74, 130, 44, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 0.25;
-    ctx.beginPath(); ctx.arc(W * 0.74, 130, 86, 0, Math.PI * 2); ctx.fill();
+    const tw = performance.now() / 900;
+    for (let i = 0; i < 70; i++) {
+      // Cheap deterministic pseudorandom from i.
+      const sx = (i * 97.13)  % W;
+      const sy = (i * 53.71)  % (GROUND_Y * 0.55);
+      const tw2 = 0.4 + 0.6 * Math.abs(Math.sin(tw + i * 0.7));
+      ctx.fillStyle = 'rgba(255, 247, 224, ' + (tw2 * 0.7) + ')';
+      ctx.fillRect(sx, sy, i % 9 === 0 ? 2 : 1, i % 9 === 0 ? 2 : 1);
+    }
+    ctx.restore();
+
+    // Moon — crescent with a few crater dots.
+    ctx.save();
+    const mcx = W * 0.74, mcy = 130, mr = 44;
+    // glow halo
+    const halo = ctx.createRadialGradient(mcx, mcy, mr * 0.4, mcx, mcy, mr * 2.4);
+    halo.addColorStop(0,   'rgba(255, 230, 160, 0.55)');
+    halo.addColorStop(0.5, 'rgba(255, 200, 120, 0.18)');
+    halo.addColorStop(1,   'rgba(255, 200, 120, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(mcx, mcy, mr * 2.4, 0, Math.PI * 2); ctx.fill();
+    // full disc
+    ctx.fillStyle = '#ffe6a0';
+    ctx.beginPath(); ctx.arc(mcx, mcy, mr, 0, Math.PI * 2); ctx.fill();
+    // shadow disc making a crescent
+    ctx.fillStyle = 'rgba(76, 35, 100, 0.78)';
+    ctx.beginPath(); ctx.arc(mcx + mr * 0.32, mcy - mr * 0.05, mr * 0.92, 0, Math.PI * 2); ctx.fill();
+    // a few craters on the lit side
+    ctx.fillStyle = 'rgba(180, 130, 60, 0.45)';
+    ctx.beginPath(); ctx.arc(mcx - mr * 0.32, mcy - mr * 0.18, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mcx - mr * 0.50, mcy + mr * 0.10, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mcx - mr * 0.18, mcy + mr * 0.35, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // Distant flame glow on the horizon — the rest of the city is on fire,
+    // sells the firefighter premise without the player having to read it.
+    ctx.save();
+    const horizonY = GROUND_Y - 14;
+    const flicker = 0.78 + 0.22 * Math.sin(performance.now() / 220);
+    const glow = ctx.createRadialGradient(W * 0.5, horizonY, 40, W * 0.5, horizonY, W * 0.7);
+    glow.addColorStop(0,   'rgba(255, 165, 70,  ' + (0.55 * flicker) + ')');
+    glow.addColorStop(0.5, 'rgba(255, 110, 60,  ' + (0.18 * flicker) + ')');
+    glow.addColorStop(1,   'rgba(255, 90, 60,   0)');
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, horizonY - 80, W, 80);
     ctx.restore();
   }
 
-  // Painted-style chunky silhouette far behind, very slow parallax.
+  // Building palette — drawn as silhouettes against the sunset.
+  // Each entry: width range, height range, roof type, window pattern.
+  const BUILDING_ROOFS = ['flat', 'flat', 'dome', 'spire', 'water-tower', 'antenna', 'sign'];
+
+  // Deterministic per-tile pseudo-random. Same seed = same layout, every
+  // tile is unique but the city repeats predictably as it scrolls.
+  function tileRand(seed, salt) {
+    const s = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453;
+    return s - Math.floor(s);
+  }
+
+  // Mid-distance skyline — varied silhouettes, flickering window grid,
+  // medium parallax. This is the visual workhorse layer.
   function drawFarSkyline() {
+    const TILE = 280;
     const baseY = GROUND_Y - 12;
-    const offset = -pmod(state.bg.farSkyline, 320);
+    const scroll = state.bg.farSkyline;
+    const start = Math.floor(scroll / TILE) - 1;
+    const offset = -(scroll - start * TILE);
     ctx.save();
-    ctx.fillStyle = '#2a1a5a';
-    for (let i = -1; i < 5; i++) {
-      const x = offset + i * 320;
-      // group of 3 buildings with rounded silhouette
-      rrect(x,        baseY - 130, 110, 130, 10); ctx.fill();
-      rrect(x + 110,  baseY - 170, 110, 170, 12); ctx.fill();
-      rrect(x + 220,  baseY - 110, 100, 110, 8);  ctx.fill();
-      // a domed roof on the tall one
-      ctx.beginPath();
-      ctx.arc(x + 165, baseY - 170, 40, Math.PI, 0);
-      ctx.fill();
+    for (let i = 0; i < 6; i++) {
+      const tileIdx = start + i;
+      const tileX = offset + i * TILE;
+      drawSkylineTile(tileX, baseY, TILE, tileIdx, {
+        color: '#2a1a5a',
+        windowColor: 'rgba(255, 200, 100, 0.55)',
+        minH: 80, maxH: 180,
+        flicker: true,
+      });
     }
-    // a few warm window glows
-    ctx.fillStyle = 'rgba(255, 200, 100, 0.55)';
-    for (let i = -1; i < 5; i++) {
-      const x = offset + i * 320;
-      for (let wy = baseY - 150; wy < baseY - 30; wy += 24) {
-        for (let wx = x + 18; wx < x + 300; wx += 28) {
-          if (((wx + wy * 2) | 0) % 5 === 0) ctx.fillRect(wx, wy, 8, 10);
+    ctx.restore();
+  }
+
+  // Closer silhouette — taller, denser, slower parallax. Reads as
+  // "the city in front of the painted backdrop."
+  function drawSkylineFg() {
+    const TILE = 360;
+    const baseY = GROUND_Y - 2;
+    const scroll = state.bg.farSkyline * 0.55;
+    const start = Math.floor(scroll / TILE) - 1;
+    const offset = -(scroll - start * TILE);
+    ctx.save();
+    for (let i = 0; i < 5; i++) {
+      const tileIdx = start + i;
+      const tileX = offset + i * TILE;
+      drawSkylineTile(tileX, baseY, TILE, tileIdx + 1000, {
+        color: '#150827',
+        windowColor: 'rgba(255, 170, 80, 0.45)',
+        minH: 60, maxH: 130,
+        flicker: false,
+      });
+    }
+    ctx.restore();
+  }
+
+  // Renders one tile of skyline. Generates 3-5 buildings with seeded
+  // randomness so each tile is consistent but the line as a whole varies.
+  function drawSkylineTile(tileX, baseY, tileW, seed, opts) {
+    const buildingCount = 3 + Math.floor(tileRand(seed, 1) * 3);
+    const widths = [];
+    let totalW = 0;
+    for (let b = 0; b < buildingCount; b++) {
+      const w = 40 + tileRand(seed, 2 + b) * 90;
+      widths.push(w);
+      totalW += w;
+    }
+    // scale widths to fit the tile
+    const sx = tileW / totalW;
+    let cursor = tileX;
+    for (let b = 0; b < buildingCount; b++) {
+      const w = widths[b] * sx;
+      const h = opts.minH + tileRand(seed, 20 + b) * (opts.maxH - opts.minH);
+      const top = baseY - h;
+      const roof = BUILDING_ROOFS[Math.floor(tileRand(seed, 40 + b) * BUILDING_ROOFS.length)];
+      // building body
+      ctx.fillStyle = opts.color;
+      rrect(cursor, top, w, h, Math.min(8, w * 0.12)); ctx.fill();
+      // roof details
+      drawBuildingRoof(cursor, top, w, roof, opts.color, seed * 7 + b);
+      // window grid
+      ctx.fillStyle = opts.windowColor;
+      const wsX = 6 + tileRand(seed, 60 + b) * 6;
+      const wsY = 12 + tileRand(seed, 80 + b) * 6;
+      const winW = 4, winH = 6;
+      const winColPitch = winW + wsX;
+      const winRowPitch = winH + wsY;
+      for (let wy = top + 10; wy < baseY - 6; wy += winRowPitch) {
+        for (let wx = cursor + 6; wx < cursor + w - 6; wx += winColPitch) {
+          const lit = tileRand(seed, wx + wy * 13);
+          if (lit > 0.62) {
+            let a = 1;
+            if (opts.flicker) {
+              // gentle flicker on ~1/8 of lit windows
+              const flickerHash = (Math.floor(wx) ^ Math.floor(wy * 31)) & 7;
+              if (flickerHash === 0) a = 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 300 + wx * 0.07));
+            }
+            ctx.globalAlpha = a;
+            ctx.fillRect(wx, wy, winW, winH);
+            ctx.globalAlpha = 1;
+          }
         }
       }
+      cursor += w;
     }
-    ctx.restore();
   }
 
-  // Closer silhouette in front of the painted skyline. Used for chunky
-  // foreground city shapes WITHOUT competing with gameplay (sits above road).
-  function drawSkylineFg() {
-    ctx.save();
-    const baseY = GROUND_Y - 2;
-    ctx.fillStyle = '#150827';
-    // simple chunky cluster, very slow parallax (almost still)
-    const offset = -pmod(state.bg.farSkyline * 0.5, 480);
-    for (let i = -1; i < 4; i++) {
-      const x = offset + i * 480;
-      rrect(x,         baseY - 70, 170, 70, 10); ctx.fill();
-      rrect(x + 180,   baseY - 90, 130, 90, 12); ctx.fill();
-      rrect(x + 320,   baseY - 60, 150, 60, 10); ctx.fill();
+  function drawBuildingRoof(x, top, w, kind, color, seed) {
+    ctx.fillStyle = color;
+    if (kind === 'dome') {
+      ctx.beginPath();
+      ctx.arc(x + w / 2, top, w * 0.4, Math.PI, 0);
+      ctx.fill();
+    } else if (kind === 'spire') {
+      ctx.fillRect(x + w / 2 - 2, top - 22, 4, 22);
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2, top - 32);
+      ctx.lineTo(x + w / 2 - 4, top - 20);
+      ctx.lineTo(x + w / 2 + 4, top - 20);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === 'water-tower') {
+      ctx.fillRect(x + w * 0.62 - 2, top - 18, 4, 18);
+      ctx.fillRect(x + w * 0.38 - 2, top - 18, 4, 18);
+      rrect(x + w * 0.34, top - 28, w * 0.32, 12, 3); ctx.fill();
+    } else if (kind === 'antenna') {
+      ctx.fillRect(x + w * 0.5 - 1, top - 26, 2, 26);
+      // red blinker — uses seed so they don't all blink in sync
+      const blink = (performance.now() / 600 + seed) % 2 < 1;
+      ctx.fillStyle = blink ? '#ff5a3c' : 'rgba(255,90,60,0.25)';
+      ctx.beginPath(); ctx.arc(x + w * 0.5, top - 26, 3, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'sign') {
+      rrect(x + w * 0.1, top - 18, w * 0.8, 12, 2); ctx.fill();
+      // sign face — neon-ish blink
+      const on = (performance.now() / 800 + seed) % 2 < 1;
+      ctx.fillStyle = on ? '#ff5a8a' : '#5a2a4a';
+      rrect(x + w * 0.16, top - 16, w * 0.68, 8, 2); ctx.fill();
     }
-    ctx.restore();
+    // 'flat' is the no-op default
   }
 
   function drawRoad() {
@@ -1627,6 +2444,22 @@
   function drawTruckProcedural(x, y, w, h, opts) {
     const blink = !!opts.blink;
     const airborne = !!opts.airborne;
+    const boost = !!opts.boost;
+    const now = performance.now();
+
+    // exhaust puff trail behind the truck (only while grounded)
+    if (!airborne) {
+      ctx.save();
+      for (let i = 0; i < 3; i++) {
+        const off = i * 9 + ((now / 60) % 9);
+        const alpha = 0.45 - i * 0.13;
+        ctx.fillStyle = 'rgba(180, 170, 200, ' + alpha + ')';
+        ctx.beginPath();
+        ctx.arc(x - 6 - off, y + h - 14, 4 + i * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
 
     // chassis drop shadow on truck
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -1636,15 +2469,40 @@
     ctx.fillStyle = '#d94028';
     rrect(x + 4, y + 28, w * 0.62, h - 34, 8); ctx.fill();
     strokeShape('#1a0f3a', 3);
+    // tank shading on bottom
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    rrect(x + 4, y + h - 18, w * 0.62, 10, 6); ctx.fill();
     // ladder on top
     ctx.strokeStyle = '#fff7e0'; ctx.lineWidth = 2.5;
     ctx.strokeRect(x + 12, y + 22, w * 0.55, 7);
     for (let lx = x + 14; lx < x + w * 0.62; lx += 10) {
       ctx.beginPath(); ctx.moveTo(lx, y + 22); ctx.lineTo(lx, y + 29); ctx.stroke();
     }
-    // gold reflective stripe
+    // gold reflective stripe with checker
     ctx.fillStyle = '#ffd24a';
     ctx.fillRect(x + 6, y + h * 0.55, w * 0.6, 6);
+    ctx.fillStyle = '#1a0f3a';
+    for (let cx = x + 8; cx < x + w * 0.6; cx += 12) {
+      ctx.fillRect(cx, y + h * 0.55, 6, 6);
+    }
+    // hose reel on the cargo tank side
+    ctx.save();
+    ctx.translate(x + w * 0.20, y + h * 0.42);
+    ctx.fillStyle = '#1a0f3a';
+    ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.5;
+    // hose coils
+    for (let r = 2; r <= 6; r += 2) {
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+    // "FD" decal on tank
+    ctx.fillStyle = '#fff7e0';
+    ctx.font = 'bold 16px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('FD', x + w * 0.42, y + h * 0.48);
 
     // CAB (right side)
     ctx.fillStyle = '#ff5a3c';
@@ -1654,25 +2512,72 @@
     ctx.fillStyle = '#a8e6ff';
     rrect(x + w * 0.62, y + 36, w * 0.32, 18, 4); ctx.fill();
     strokeShape('#1a0f3a', 2.5);
+    // window sheen
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.64, y + 38); ctx.lineTo(x + w * 0.7, y + 38);
+    ctx.lineTo(x + w * 0.66, y + 52); ctx.lineTo(x + w * 0.62, y + 52);
+    ctx.closePath(); ctx.fill();
 
     // RIZZLE — sits in the cab, head pokes WAY above
     const capCx = x + w * 0.78;
     const capCy = y + 4 - (airborne ? 2 : 0);
     drawRizzle(capCx, capCy, 38, { blink, arm: 'wheel' });
 
-    // siren on cab roof
-    const sirenOn = (performance.now() / 200) % 2 < 1;
+    // SIREN — base dome + rotating beam (more dramatic during boost)
+    const sirenPulse = (now / 220) % (Math.PI * 2);
+    const sirenOn = (now / 200) % 2 < 1;
+    const beamLen = boost ? 80 : 40;
+    ctx.save();
+    ctx.translate(x + w * 0.56 + 7, y + 22);
+    // beam glow (rotating)
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 2; i++) {
+      const a = sirenPulse + i * Math.PI;
+      ctx.strokeStyle = i === 0 ? 'rgba(255,226,76,0.55)' : 'rgba(78,197,255,0.55)';
+      ctx.lineWidth = boost ? 14 : 8;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * beamLen, Math.sin(a) * beamLen - 12);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    // siren housing
     ctx.fillStyle = sirenOn ? '#ffe24c' : '#4ec5ff';
-    rrect(x + w * 0.56, y + 22, 14, 8, 2); ctx.fill();
+    rrect(-7, 0, 14, 8, 2); ctx.fill();
     strokeShape('#1a0f3a', 1.5);
+    // dome on top
+    ctx.fillStyle = sirenOn ? '#fff7e0' : '#a8e6ff';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 6, 4, 0, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
 
     // bumper
     ctx.fillStyle = '#1a0f3a';
     ctx.fillRect(x + w - 8, y + h - 22, 8, 10);
+    // bumper headlight
+    ctx.fillStyle = boost ? '#fff7e0' : '#ffd24a';
+    ctx.beginPath();
+    ctx.arc(x + w - 4, y + h - 17, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-    // wheels
+    // wheels (with rotating spokes already inside drawWheel)
     drawWheel(x + 30,      y + h - 2, 16);
     drawWheel(x + w - 36,  y + h - 2, 16);
+    // muddy splash near wheels while grounded
+    if (!airborne) {
+      ctx.fillStyle = 'rgba(140,103,48,0.55)';
+      for (let i = 0; i < 3; i++) {
+        const px = x + 18 - i * 4 - (now / 90) % 8;
+        const py = y + h + 1 - (i % 2) * 2;
+        ctx.beginPath(); ctx.arc(px, py, 1.6, 0, Math.PI * 2); ctx.fill();
+      }
+    }
   }
 
   function drawWheel(cx, cy, r) {
@@ -1910,6 +2815,9 @@
       elTitleBest.classList.add('hidden');
     }
   }
+  // Seed the world once at boot so the title screen has a live, scrolling
+  // capybara-stuffed backdrop while the player decides to hit PLAY.
+  resetRun();
   setMode('title');
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();
