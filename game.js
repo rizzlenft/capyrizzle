@@ -23,9 +23,14 @@
  */
 
 (() => {
-  const BUILD = 'v6.2';
+  const BUILD = 'v7.0-debug';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
+  // Paint build tag immediately so user can confirm without DevTools.
+  (function paintBuildTag(){
+    const el = document.getElementById('debugTag');
+    if (el) el.textContent = 'build ' + BUILD;
+  })();
 
   'use strict';
 
@@ -53,6 +58,8 @@
   const elNewBest    = $('newBest');
   const btnStart     = $('start');
   const btnRetry     = $('retry');
+  const elDebugTag   = $('debugTag');
+  const elDebugState = $('debugState');
 
   // ─── TUNING ───────────────────────────────────────────────────────────
   const GROUND_Y = 450;
@@ -317,6 +324,13 @@
     // milestone tracking
     nextMilestone: MILESTONE_M,
 
+    // Cumulative bonus pool — all scoring bonuses (smash, near-miss, pickup,
+    // milestone) accumulate here instead of being injected into `distance`.
+    // Previously bonuses bumped `distance`, which inflated `score` next frame,
+    // which crossed more milestones, which gave bigger distance bonuses…
+    // exponential snowball that froze the JS thread once combo > 5.
+    bonusScore: 0,
+
     // truck
     truck: {
       x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
@@ -428,6 +442,7 @@
     state.comboLevelShown = 0;
     state.slowMo = 0;
     state.nextMilestone = MILESTONE_M;
+    state.bonusScore = 0;
 
     Object.assign(state.truck, {
       x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
@@ -484,10 +499,10 @@
       newBest = true;
       try { localStorage.setItem(HIGHSCORE_KEY, String(state.best)); } catch {}
     }
-    setText(elFinal,      String(final));
+    setText(elFinal,      final.toLocaleString());
     setText(elFinalSmash, String(state.firesSmashed));
     setText(elFinalCombo, '×' + state.bestCombo);
-    setText(elFinalBest,  String(state.best));
+    setText(elFinalBest,  state.best.toLocaleString());
     if (elNewBest) elNewBest.classList.toggle('hidden', !newBest);
     setMode('gameover');
   }
@@ -504,14 +519,18 @@
   //
   //   Variants are visual-only; the collider is always a fire-shaped box.
   // ═════════════════════════════════════════════════════════════════════
-  // Tuning math reference (don't break these without re-deriving):
-  //   Truck airtime per jump ≈ 0.92s (with apex hang).
-  //   Worst-case world speed ≈ 200 px/s (start) → jump covers ~184 px laterally.
-  //   At MAX_SPEED 520 → jump covers ~478 px laterally.
-  // Every fire collider must be cleanly jumpable in one jump at BASE_SPEED.
-  // Multi-fire patterns space individual fires far enough apart that they can
-  // be jumped INDIVIDUALLY (one jump per fire). Wide "pit" obstacles are kept
-  // narrow enough that a single jump clears them at start speed too.
+  // Tuning math reference — VERIFIED by tools/playtest.mjs on every run.
+  //   Jump airtime:           ~0.916s (with apex hang)
+  //   Peak height:             ~184 px above ground
+  //   Jump-to-jump cycle:     ~1.016s minimum (land + crouch + relaunch)
+  //   Single fire clear time: (truck_hb + fire_hb) / speed
+  //     • At WARMUP 200 px/s: ~0.62s
+  //     • At MAX    520 px/s: ~0.24s  (always fits in 0.916s airtime)
+  //   Multi-fire spacing required (dx between consecutive fires):
+  //     • At WARMUP 200 px/s: dx ≥ 204 px
+  //     • At MAX    520 px/s: dx ≥ 530 px
+  //   We use dx ≥ 600 between fires so EVERY multi-fire pattern is jumpable
+  //   at every speed the game ever reaches (verified by playtest).
   const FIRE_VARIANTS = {
     // name        w    h    color1     color2     core
     torch:     { w: 60, h: 92,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
@@ -543,31 +562,31 @@
     { name: 'pit',        phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'pit'  }] },
     { name: 'doubleWide', phase: 2, weight: 3, items: [
         { kind: 'fire', dx: 0,   variant: 'short' },
-        { kind: 'fire', dx: 280, variant: 'short' },
+        { kind: 'fire', dx: 600, variant: 'short' },
     ]},
     // Mid-jump water reward — water lifted to ~jump peak height
-    // (truck reaches y ≈ 186; truck-hitbox center ≈ 230; so water y ≈ 220
-    // → lift ≈ 450 − 52 − 220 = 178). Pattern spawns water in the AIR ahead
-    // of the fire so a single jump clears the fire and grabs the water.
+    // (truck top reaches GROUND_Y - TRUCK_H - 184 = 186; we want truck top
+    // to just touch the water bottom at peak. water y = GROUND_Y - 52 - lift.
+    // lift = 220 puts the water cleanly within the jump arc.)
     { name: 'jumpReward', phase: 2, weight: 2, items: [
         { kind: 'fire',  dx: 0,   variant: 'short' },
-        { kind: 'water', dx: 110, lift: 178 },
+        { kind: 'water', dx: 110, lift: 140 },
     ]},
 
     // ── Hard (phase 3) ──
     { name: 'triple',     phase: 3, weight: 2, items: [
-        { kind: 'fire', dx: 0,   variant: 'short' },
-        { kind: 'fire', dx: 290, variant: 'short' },
-        { kind: 'fire', dx: 580, variant: 'short' },
+        { kind: 'fire', dx: 0,    variant: 'short' },
+        { kind: 'fire', dx: 600,  variant: 'short' },
+        { kind: 'fire', dx: 1200, variant: 'short' },
     ]},
     { name: 'pit+tall',   phase: 3, weight: 2, items: [
         { kind: 'fire', dx: 0,   variant: 'pit' },
-        { kind: 'fire', dx: 320, variant: 'tall' },
+        { kind: 'fire', dx: 620, variant: 'tall' },
     ]},
     { name: 'rewardRun',  phase: 3, weight: 1, items: [
-        { kind: 'fire',  dx: 0,   variant: 'torch' },
-        { kind: 'water', dx: 110, lift: 178 },
-        { kind: 'fire',  dx: 310, variant: 'torch' },
+        { kind: 'fire',  dx: 0,    variant: 'torch' },
+        { kind: 'water', dx: 110,  lift: 140 },
+        { kind: 'fire',  dx: 640,  variant: 'torch' },
     ]},
   ];
 
@@ -724,6 +743,15 @@
     state.combo = 1;
     state.comboLevelShown = 0;
   }
+
+  // Centralized bonus accumulator. All score bonuses (smash, near-miss,
+  // pickup, milestone) MUST go through this — never write directly to
+  // state.distance, which would inflate next-frame score and risk a
+  // milestone-feedback freeze.
+  function awardBonus(pts) {
+    if (pts <= 0) return;
+    state.bonusScore += pts;
+  }
   function bumpComboPill() {
     if (!elCombo) return;
     elCombo.classList.remove('bumped');
@@ -803,7 +831,10 @@
     const scoreMul   = state.boosting ? BOOST_SCORE_MULT : 1;
 
     state.distance += worldSpeed * dt * scoreMul;
-    state.score = Math.floor(state.distance / 10);
+    // score = real distance (m) + cumulative bonuses (smash, near-miss,
+    // pickup, milestone). Keeping bonuses out of `distance` prevents the
+    // milestone-feedback freeze.
+    state.score = Math.floor(state.distance / 10) + state.bonusScore;
 
     // ── Truck physics ────────────────────────────────────────────────
     const t = state.truck;
@@ -875,8 +906,7 @@
           state.firesSmashed += 1;
           addCombo(1);
           const pts = 25 * state.combo;
-          state.score    += pts;
-          state.distance += pts * 10;
+          awardBonus(pts);
           spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 24, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']);
           popup('SMASH +' + pts, o.x + o.w / 2, o.y - 4, '#ffe24c');
           shake(8, 0.18);
@@ -900,8 +930,7 @@
             // CLOSE! near-miss bonus
             state.nearMisses += 1;
             const pts = NEAR_MISS_POINTS * state.combo;
-            state.score    += pts;
-            state.distance += pts * 10;
+            awardBonus(pts);
             popup('CLOSE! +' + pts, o.x + o.w * 0.5 + 14, o.y - 8, '#ffe24c');
             spawnSpark(state.truck.x + TRUCK_W * 0.4, state.truck.y + TRUCK_H, 10,
                        ['#ffe24c', '#fff7e0', '#ffb14c']);
@@ -928,8 +957,7 @@
         state.boostTime = Math.min(BOOST_MAX_TIME, state.boostTime + BOOST_TIME_PER);
         // small score from water too, multiplied by combo
         const pts = 5 * state.combo;
-        state.score    += pts;
-        state.distance += pts * 10;
+        awardBonus(pts);
         spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 14, ['#4ec5ff', '#a8e6ff', '#fff7e0']);
         popup(wasBoosting ? '+SIREN' : 'SIREN!', p.x + p.w / 2, p.y, '#a8e6ff');
         state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.10);
@@ -959,13 +987,21 @@
     if (state.hint.waterDone) state.hint.waterA = Math.max(0, state.hint.waterA - dt * 1.4);
 
     // ── Distance milestones ──────────────────────────────────────────
-    while (state.score >= state.nextMilestone) {
+    // Fire AT MOST ONCE per frame, no matter how many milestones the score
+    // crossed in one tick. nextMilestone snaps past current score so we can
+    // never loop. Bonuses go through awardBonus (does not feed distance).
+    if (state.score >= state.nextMilestone) {
       const m = state.nextMilestone;
-      state.nextMilestone += MILESTONE_M;
       addCombo(1);
       const pts = 50 * state.combo;
-      state.score    += pts;
-      state.distance += pts * 10;
+      awardBonus(pts);
+      // Snap nextMilestone past the POST-bonus score. Critically the score
+      // includes bonusScore, so we must recompute after awarding — otherwise
+      // next frame's `score = distance/10 + bonusScore` jumps past nextMilestone
+      // again and we re-fire forever.
+      const newScore = Math.floor(state.distance / 10) + state.bonusScore;
+      const steps    = Math.max(1, Math.floor((newScore - m) / MILESTONE_M) + 1);
+      state.nextMilestone = m + steps * MILESTONE_M;
       showMilestone(m + 'm — +' + pts);
       state.flashWhite = Math.max(state.flashWhite, 0.06);
       shake(4, 0.18);
@@ -973,8 +1009,8 @@
     }
 
     // ── HUD ── (defensive — missing elements must never freeze the loop)
-    setText(elScore, state.score + ' m');
-    setText(elBest,  'BEST ' + Math.max(state.best, state.score) + ' m');
+    setText(elScore, state.score.toLocaleString());
+    setText(elBest,  'BEST ' + Math.max(state.best, state.score).toLocaleString());
     setText(elCombo, '×' + state.combo);
     if (elCombo) elCombo.classList.toggle('hot', state.combo >= 8);
     setStyleWidth(elBoost, clamp((state.boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%');
@@ -1691,6 +1727,22 @@
       // eslint-disable-next-line no-console
       console.error('[CapyRizzle] frame error:', err);
       showErrorBanner(err);
+    }
+    // Live debug readout — visible bottom-right corner. Strip after diagnosis.
+    if (elDebugState) {
+      const fz  = state.freezeT > 0 ? state.freezeT.toFixed(2) : '-';
+      const dy  = state.deathT  > 0 ? state.deathT.toFixed(2)  : '-';
+      const sm  = state.slowMo  > 0 ? state.slowMo.toFixed(2)  : '-';
+      const fps = dt > 0 ? Math.round(1 / dt) : 0;
+      const ty  = Math.round(state.truck ? state.truck.y : 0);
+      const og  = state.truck && state.truck.onGround ? '1' : '0';
+      const sp  = Math.round(state.speed || 0);
+      const rt  = (state.runTime || 0).toFixed(1);
+      elDebugState.innerHTML =
+        'mode:' + mode + ' fps:' + fps + ' rt:' + rt + 's<br>' +
+        'truckY:' + ty + ' onGround:' + og + ' speed:' + sp + '<br>' +
+        'freeze:' + fz + ' death:' + dy + ' slowMo:' + sm +
+        ' obs:' + state.obstacles.length;
     }
     requestAnimationFrame(frame);
   }

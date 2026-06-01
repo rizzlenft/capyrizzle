@@ -29,6 +29,11 @@
     <div id="comboPop" class="combo-pop hidden"></div>
     <div id="milestonePop" class="milestone-pop hidden"></div>
 
+    <!-- DEBUG: build tag + live state. Tells us at a glance which build is
+         loaded and what the death sequence is doing. Remove after diagnosis. -->
+    <div id="debugTag">build —</div>
+    <div id="debugState">mode: —</div>
+
     <div id="title" class="overlay">
       <h1 class="logo"><span class="line1">CAPYRIZZLE</span><span class="line2">RUSH</span></h1>
       <p class="tag">Tap / Space to JUMP fires.<br/>Grab WATER for siren boost — smash everything.</p>
@@ -39,7 +44,7 @@
     <div id="gameover" class="overlay hidden">
       <h2 class="gg">WIPEOUT</h2>
       <div class="stats">
-        <div class="stat"><div class="stat-label">DISTANCE</div><div class="stat-value" id="finalScore">0</div></div>
+        <div class="stat"><div class="stat-label">SCORE</div><div class="stat-value" id="finalScore">0</div></div>
         <div class="stat"><div class="stat-label">BEST COMBO</div><div class="stat-value" id="finalCombo">×1</div></div>
         <div class="stat"><div class="stat-label">FIRES SMASHED</div><div class="stat-value" id="finalSmashed">0</div></div>
         <div class="stat"><div class="stat-label">BEST</div><div class="stat-value" id="finalBest">0</div></div>
