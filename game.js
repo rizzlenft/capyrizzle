@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v7.2';
+  const BUILD = 'v7.3';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -68,6 +68,7 @@
   const btnRetry     = $('retry');
   const elDebugTag   = $('debugTag');
   const elDebugState = $('debugState');
+  const elBestChase  = $('bestChase');
 
   // ─── TUNING ───────────────────────────────────────────────────────────
   const GROUND_Y = 450;
@@ -293,12 +294,32 @@
     src.connect(g); g.connect(c.destination);
     src.start(t); src.stop(t + dur + 0.02);
   }
+  // Combo-aware audio — most sounds rise in pitch with combo for a
+  // "leveling up" feel as a run gets hot. Combo expected in [1, 20].
   const sfx = {
-    jump()   { blip(360, 0.18, 'square',   0.05, 760); },
+    jump(combo = 1) {
+      const f = 320 + Math.min(20, combo) * 18;
+      blip(f, 0.16, 'square', 0.05, f * 2.1);
+    },
     land()   { noise(0.10, 0.05); blip(140, 0.08, 'sine', 0.05, 80); },
-    pickup() { blip(600, 0.08, 'triangle', 0.06, 980); blip(900, 0.10, 'triangle', 0.05, 1400); },
+    pickup(combo = 1) {
+      const a = 560 + Math.min(20, combo) * 22;
+      blip(a, 0.08, 'triangle', 0.06, a * 1.6);
+      blip(a * 1.5, 0.10, 'triangle', 0.05, a * 2.3);
+    },
+    nearMiss(combo = 1) {
+      // Quick high "ting" with a tiny swell so close jumps feel satisfying.
+      const f = 1100 + Math.min(20, combo) * 30;
+      blip(f, 0.06, 'sine', 0.04, f * 1.4, 0.002);
+      blip(f * 1.5, 0.04, 'triangle', 0.03, f * 1.2);
+    },
     boost()  { blip(220, 0.30, 'sawtooth', 0.07, 880); blip(660, 0.18, 'square', 0.05, 1320); noise(0.20, 0.04); },
-    smash()  { blip(120, 0.18, 'sawtooth', 0.08,  60); noise(0.12, 0.08); blip(880, 0.06, 'square', 0.04, 220); },
+    smash(combo = 1) {
+      const c = Math.min(20, combo);
+      blip(110 + c * 12, 0.18, 'sawtooth', 0.08, 60 + c * 4);
+      noise(0.12, 0.08);
+      blip(860 + c * 28, 0.06, 'square', 0.04, 220);
+    },
     crash()  { blip( 80, 0.50, 'sawtooth', 0.10,  40); noise(0.35, 0.12); },
   };
 
@@ -427,7 +448,7 @@
     t.squash = 0.72;
     t.stretch = 1.30;
     spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, 9, '#fff7e0');
-    sfx.jump();
+    sfx.jump(state.combo);
     if (!state.hint.jumpDone) state.hint.jumpDone = true;
   }
 
@@ -623,6 +644,17 @@
         { kind: 'water', dx: 110, lift: 140 },
     ]},
 
+    // Pit then a low water pickup — reward for nailing a precise jump.
+    { name: 'pitWater',   phase: 2, weight: 2, items: [
+        { kind: 'fire',  dx: 0,   variant: 'pit' },
+        { kind: 'water', dx: 90,  lift: 60 },
+    ]},
+    // Chain of waters for a quick boost top-up.
+    { name: 'waterChain', phase: 1, weight: 2, items: [
+        { kind: 'water', dx: 0,   lift: 60 },
+        { kind: 'water', dx: 200, lift: 90 },
+    ]},
+
     // ── Hard (phase 3) ──
     { name: 'triple',     phase: 3, weight: 2, items: [
         { kind: 'fire', dx: 0,    variant: 'short' },
@@ -637,6 +669,14 @@
         { kind: 'fire',  dx: 0,    variant: 'torch' },
         { kind: 'water', dx: 110,  lift: 140 },
         { kind: 'fire',  dx: 640,  variant: 'torch' },
+    ]},
+    // Iron run — four fires, hardest single pattern. Spacing 600px
+    // each so still single-jumpable at MAX speed (verified in playtest).
+    { name: 'ironRun',    phase: 3, weight: 1, items: [
+        { kind: 'fire', dx: 0,    variant: 'short' },
+        { kind: 'fire', dx: 600,  variant: 'tall'  },
+        { kind: 'fire', dx: 1200, variant: 'short' },
+        { kind: 'fire', dx: 1800, variant: 'torch' },
     ]},
   ];
 
@@ -879,12 +919,19 @@
       state.speed = Math.min(MAX_SPEED, WARMUP_SPEED + RAMP_PER_SEC * (state.runTime - WARMUP_TIME));
     }
 
-    // Boost handling
+    // Boost handling — track edge transitions so we can play a small
+    // "boost ended" cue instead of silently dropping the player out.
+    const wasBoosting = state.boosting;
     state.boosting = state.boostTime > 0;
     if (state.boosting) {
       state.boostTime = Math.max(0, state.boostTime - dt);
       state.boostUsed += dt;
       spawnBoostFlame();
+    } else if (wasBoosting) {
+      // boost just ran out — gentle audio + tiny dust puff
+      blip(540, 0.10, 'triangle', 0.05, 240);
+      blip(220, 0.16, 'sine',     0.04, 110);
+      spawnDust(state.truck.x + TRUCK_W * 0.5, GROUND_Y - 6, 6, '#a8c3ff');
     }
     const worldSpeed = state.boosting ? state.speed * BOOST_MULT : state.speed;
     const scoreMul   = state.boosting ? BOOST_SCORE_MULT : 1;
@@ -979,7 +1026,7 @@
           spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 24, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']);
           popup('SMASH +' + pts, o.x + o.w / 2, o.y - 4, '#ffe24c');
           shake(8, 0.18);
-          sfx.smash();
+          sfx.smash(state.combo);
           state.obstacles.splice(i, 1);
           continue;
         } else {
@@ -1005,7 +1052,7 @@
                        ['#ffe24c', '#fff7e0', '#ffb14c']);
             state.slowMo = Math.max(state.slowMo, SLOWMO_TIME);
             shake(3, 0.1);
-            sfx.pickup();
+            sfx.nearMiss(state.combo);
           }
         }
       }
@@ -1031,7 +1078,7 @@
         popup(wasBoosting ? '+SIREN' : 'SIREN!', p.x + p.w / 2, p.y, '#a8e6ff');
         state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.10);
         shake(wasBoosting ? 3 : 6, 0.14);
-        sfx.pickup();
+        sfx.pickup(state.combo);
         if (!wasBoosting) sfx.boost();
         if (!state.hint.waterDone) {
           state.hint.waterDone = true;
@@ -1079,9 +1126,32 @@
     setText(elScore, state.score.toLocaleString());
     setText(elBest,  'BEST ' + Math.max(state.best, state.score).toLocaleString());
     setText(elCombo, '×' + state.combo);
-    if (elCombo) elCombo.classList.toggle('hot', state.combo >= 8);
+    if (elCombo) {
+      elCombo.classList.toggle('hot',   state.combo >= 8  && state.combo < 16);
+      elCombo.classList.toggle('blaze', state.combo >= 16);
+    }
     setStyleWidth(elBoost, clamp((state.boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%');
     setText(elBoostLabel, state.boosting ? 'SIREN!' : 'SIREN');
+
+    // Beat-your-best indicator. Hidden when there's no best to chase or
+    // when far from it. Appears within 80% of best, turns into a juicy
+    // "NEW BEST!" pulse the moment we cross.
+    if (elBestChase) {
+      if (state.best <= 0) {
+        elBestChase.classList.add('hidden');
+      } else if (state.score >= state.best) {
+        elBestChase.classList.remove('hidden');
+        elBestChase.classList.add('beat');
+        elBestChase.textContent = 'NEW BEST  +' + (state.score - state.best).toLocaleString();
+      } else if (state.score >= state.best * 0.8) {
+        elBestChase.classList.remove('hidden');
+        elBestChase.classList.remove('beat');
+        elBestChase.textContent = (state.best - state.score).toLocaleString() + ' TO BEST';
+      } else {
+        elBestChase.classList.add('hidden');
+        elBestChase.classList.remove('beat');
+      }
+    }
   }
 
   function updateParticles(dt) {

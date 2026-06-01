@@ -16,14 +16,17 @@
 
     <div id="hud" class="hidden">
       <div class="hud-row">
-        <div class="hud-pill" id="score">0 m</div>
+        <div class="hud-pill" id="score">0</div>
         <div class="hud-pill combo-pill" id="combo">×1</div>
-        <div class="hud-pill" id="best">BEST 0 m</div>
+        <div class="hud-pill" id="best">BEST 0</div>
       </div>
       <div class="boost-wrap">
         <div class="boost-label" id="boostLabel">SIREN</div>
         <div class="boost-bar"><div class="boost-fill" id="boost"></div></div>
       </div>
+      <!-- Appears under the score pill when the run is closing in on /
+           past the personal best. Pure motivation. -->
+      <div class="best-chase hidden" id="bestChase"></div>
     </div>
 
     <div id="comboPop" class="combo-pop hidden"></div>
