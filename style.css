@@ -269,6 +269,31 @@ html, body {
   letter-spacing: 0.18em;
   animation: pulse 0.8s ease-in-out infinite;
 }
+.rank-row {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  margin-top: -8px;
+  animation: rankIn 360ms cubic-bezier(0.2, 1.4, 0.3, 1) both;
+}
+.rank-label {
+  font-size: clamp(11px, 1.6vmin, 13px);
+  letter-spacing: 0.32em;
+  opacity: 0.75;
+}
+.rank-letter {
+  font-size: clamp(72px, 14vmin, 132px);
+  line-height: 0.9;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  -webkit-text-stroke: 3px var(--ink);
+  transition: color 200ms ease;
+}
+@keyframes rankIn {
+  0%   { transform: scale(0.4) rotate(-10deg); opacity: 0; }
+  60%  { transform: scale(1.15) rotate(2deg);  opacity: 1; }
+  100% { transform: scale(1) rotate(0deg);     opacity: 1; }
+}
 @keyframes pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.06); opacity: 0.85; }

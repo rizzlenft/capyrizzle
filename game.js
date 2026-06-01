@@ -23,13 +23,21 @@
  */
 
 (() => {
-  const BUILD = 'v7.0-debug';
+  const BUILD = 'v7.1';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
-  // Paint build tag immediately so user can confirm without DevTools.
+  // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
+  // diagnostics available for dev without polluting the shipped game.
+  const DEBUG = /[?&]debug=1\b/.test(location.search);
   (function paintBuildTag(){
-    const el = document.getElementById('debugTag');
-    if (el) el.textContent = 'build ' + BUILD;
+    const tag = document.getElementById('debugTag');
+    const stt = document.getElementById('debugState');
+    if (!DEBUG) {
+      if (tag) tag.style.display = 'none';
+      if (stt) stt.style.display = 'none';
+      return;
+    }
+    if (tag) tag.textContent = 'build ' + BUILD;
   })();
 
   'use strict';
@@ -73,13 +81,14 @@
   const APEX_GRAV_MUL  = 0.55;     // gravity multiplier near the apex (hang time)
   const APEX_BAND      = 220;      // |vy| below which we're "near apex"
   const CROUCH_TIME    = 0.07;     // seconds of anticipation crouch before liftoff
+  const JUMP_BUFFER    = 0.16;     // tap-while-airborne buffer (auto-jumps on landing)
 
   // Pace — locked warmup, then very gentle ramp
   const BASE_SPEED    = 200;
   const WARMUP_SPEED  = 200;
-  const WARMUP_TIME   = 12;        // seconds of locked speed at the start of every run
-  const MAX_SPEED     = 520;
-  const RAMP_PER_SEC  = 6;         // px/s gained per second after warmup
+  const WARMUP_TIME   = 6;         // short on-ramp — player gets moving fast
+  const MAX_SPEED     = 480;       // tighter ceiling — game stays controllable
+  const RAMP_PER_SEC  = 9;         // px/s gained per second after warmup
 
   // Boost
   const BOOST_MULT       = 1.55;
@@ -88,7 +97,7 @@
   const BOOST_SCORE_MULT = 2.0;
 
   // Spawning
-  const GRACE_TIME = 2.4;          // seconds with no obstacles at run start
+  const GRACE_TIME = 1.6;          // seconds with no obstacles at run start
   const OBSTACLE_GAP_MIN_EARLY = 520;
   const OBSTACLE_GAP_MAX_EARLY = 820;
   const OBSTACLE_GAP_MIN_LATE  = 360;
@@ -338,6 +347,7 @@
       squash: 1, stretch: 1,           // y/x scale
       crouchT: 0,                      // anticipation timer; while >0, queued jump pending
       pendingJump: false,
+      jumpBuffer: 0,                   // input-buffer countdown for taps-while-airborne
       bob: 0,                          // continuous road-bob phase
       blinkT: rand(2, 4),              // seconds until next blink
       blinking: 0,                     // remaining blink animation
@@ -396,11 +406,19 @@
 
   function queueJump() {
     const t = state.truck;
-    if (!t.onGround || t.crouchT > 0) return;
-    t.crouchT = CROUCH_TIME;
-    t.pendingJump = true;
-    t.squash = 0.62;
-    t.stretch = 1.18;
+    // Already on the ground? Start the anticipation crouch immediately.
+    if (t.onGround && t.crouchT <= 0) {
+      t.crouchT = CROUCH_TIME;
+      t.pendingJump = true;
+      t.squash = 0.62;
+      t.stretch = 1.18;
+      return;
+    }
+    // Already crouching this jump? Tap is no-op (don't restart the crouch).
+    if (t.crouchT > 0) return;
+    // Airborne: stash the press in a short buffer so it auto-fires the
+    // moment we land. Makes the controls feel forgiving and snappy.
+    t.jumpBuffer = JUMP_BUFFER;
   }
   function actuallyJump() {
     const t = state.truck;
@@ -447,7 +465,7 @@
     Object.assign(state.truck, {
       x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
       onGround: true, squash: 1, stretch: 1,
-      crouchT: 0, pendingJump: false, bob: 0,
+      crouchT: 0, pendingJump: false, jumpBuffer: 0, bob: 0,
       blinkT: rand(2, 4), blinking: 0,
     });
 
@@ -458,6 +476,7 @@
 
     state.nextObstacleDist = 900;
     state.nextPickupDist   = 700;
+    state.patternCount     = 0;
 
     state.shake.mag = 0; state.shake.time = 0;
     state.flashWhite = 0;
@@ -490,6 +509,25 @@
     mode = 'dying'; // suspended state — entities frozen, particles continue
   }
 
+  // Run rank — gives the player a clear progression target across runs.
+  // Tuned against typical scores observed in playtest:
+  //   distance-only 30s run        ≈    900
+  //   solid jumping 60s run        ≈  5,000
+  //   with a couple boost smashes  ≈ 15,000
+  //   long boost-chain run         ≈ 40,000+
+  //   master run                   ≈100,000+
+  const RANK_TIERS = [
+    { min: 100000, label: 'S', color: '#ffe24c' },
+    { min:  40000, label: 'A', color: '#ff8a3c' },
+    { min:  15000, label: 'B', color: '#a8e6ff' },
+    { min:   5000, label: 'C', color: '#8c6bff' },
+    { min:      0, label: 'D', color: '#9ad1ff' },
+  ];
+  function rankFor(score) {
+    for (const t of RANK_TIERS) if (score >= t.min) return t;
+    return RANK_TIERS[RANK_TIERS.length - 1];
+  }
+
   function finishDeath() {
     // Tally + present results
     const final = state.score;
@@ -504,6 +542,14 @@
     setText(elFinalCombo, '×' + state.bestCombo);
     setText(elFinalBest,  state.best.toLocaleString());
     if (elNewBest) elNewBest.classList.toggle('hidden', !newBest);
+    // Rank
+    const rank = rankFor(final);
+    const elRank = $('finalRank');
+    if (elRank) {
+      elRank.textContent = rank.label;
+      elRank.style.color = rank.color;
+      elRank.style.textShadow = '0 0 24px ' + rank.color + '88';
+    }
     setMode('gameover');
   }
 
@@ -531,11 +577,15 @@
   //     • At MAX    520 px/s: dx ≥ 530 px
   //   We use dx ≥ 600 between fires so EVERY multi-fire pattern is jumpable
   //   at every speed the game ever reaches (verified by playtest).
+  // All fire variants are warm-spectrum (red/orange/magenta) so they can
+  // never be mistaken for the cool-blue water pickup. Previously we had a
+  // 'blue' flame variant which confused players (cool-colored hazard looked
+  // pickup-like) — replaced with a magenta 'ember' flame.
   const FIRE_VARIANTS = {
     // name        w    h    color1     color2     core
     torch:     { w: 60, h: 92,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
     tall:      { w: 54, h: 108, color1: '#ff3a2a', color2: '#ffd24a', core: '#fff7e0' },
-    blue:      { w: 56, h: 96,  color1: '#4ec5ff', color2: '#a8e6ff', core: '#fff7e0' },
+    ember:     { w: 56, h: 96,  color1: '#ff3a8a', color2: '#ffb14c', core: '#ffe9a8' },
     pit:       { w: 64, h: 50,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
     short:     { w: 62, h: 68,  color1: '#ff8a3c', color2: '#ffd24a', core: '#fff7e0' },
   };
@@ -558,7 +608,7 @@
 
     // ── Medium (phase 2) ──
     { name: 'tall',       phase: 2, weight: 3, items: [{ kind: 'fire', dx: 0, variant: 'tall' }] },
-    { name: 'blue',       phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'blue' }] },
+    { name: 'ember',      phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'ember' }] },
     { name: 'pit',        phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'pit'  }] },
     { name: 'doubleWide', phase: 2, weight: 3, items: [
         { kind: 'fire', dx: 0,   variant: 'short' },
@@ -591,8 +641,13 @@
   ];
 
   function currentPhase() {
-    if (state.runTime < 25) return 1;
-    if (state.runTime < 60) return 2;
+    // Tuned to the new speed curve (WARMUP_TIME 6, RAMP 9, MAX 480):
+    //   t= 6s → speed 200 (warmup ends)
+    //   t=15s → speed 281 (phase 1→2: introduce multi-fire + water reward)
+    //   t=35s → speed 461 (phase 2→3: triple, pit+tall, rewardRun unlock)
+    //   t≈37s → MAX_SPEED reached
+    if (state.runTime < 15) return 1;
+    if (state.runTime < 35) return 2;
     return 3;
   }
 
@@ -640,7 +695,11 @@
     // Add breathing room after the pattern based on speed/phase.
     const phase = currentPhase();
     const breathe = phase === 1 ? rand(540, 760) : phase === 2 ? rand(420, 620) : rand(360, 540);
-    state.nextObstacleDist = span + breathe;
+    // Every Nth pattern is a guaranteed breather — gives the run a heartbeat
+    // rhythm (intense / calm / intense) instead of a flat wall of obstacles.
+    state.patternCount = (state.patternCount || 0) + 1;
+    const isBreather = state.patternCount % 5 === 0;
+    state.nextObstacleDist = span + breathe + (isBreather ? rand(420, 640) : 0);
   }
 
   function spawnLooseWater() {
@@ -838,6 +897,10 @@
 
     // ── Truck physics ────────────────────────────────────────────────
     const t = state.truck;
+    // Jump-input buffer decays in real time (so airborne taps within
+    // JUMP_BUFFER seconds of touchdown still register).
+    if (t.jumpBuffer > 0) t.jumpBuffer = Math.max(0, t.jumpBuffer - dt);
+
     if (t.crouchT > 0) {
       t.crouchT -= dt;
       if (t.crouchT <= 0 && t.pendingJump) {
@@ -861,6 +924,12 @@
         spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, 12, '#e9dbb8');
         shake(4, 0.10);
         sfx.land();
+        // Buffered jump: if the player tapped within the buffer window
+        // while still airborne, fire the next jump immediately on landing.
+        if (t.jumpBuffer > 0) {
+          t.jumpBuffer = 0;
+          queueJump();
+        }
       }
     } else {
       t.bob += dt * 8;
@@ -1002,7 +1071,7 @@
       const newScore = Math.floor(state.distance / 10) + state.bonusScore;
       const steps    = Math.max(1, Math.floor((newScore - m) / MILESTONE_M) + 1);
       state.nextMilestone = m + steps * MILESTONE_M;
-      showMilestone(m + 'm — +' + pts);
+      showMilestone(m.toLocaleString() + ' — +' + pts);
       state.flashWhite = Math.max(state.flashWhite, 0.06);
       shake(4, 0.18);
       blip(680, 0.20, 'triangle', 0.06, 1320);
@@ -1728,8 +1797,8 @@
       console.error('[CapyRizzle] frame error:', err);
       showErrorBanner(err);
     }
-    // Live debug readout — visible bottom-right corner. Strip after diagnosis.
-    if (elDebugState) {
+    // Live debug readout — bottom-right corner (opt-in via ?debug=1).
+    if (DEBUG && elDebugState) {
       const fz  = state.freezeT > 0 ? state.freezeT.toFixed(2) : '-';
       const dy  = state.deathT  > 0 ? state.deathT.toFixed(2)  : '-';
       const sm  = state.slowMo  > 0 ? state.slowMo.toFixed(2)  : '-';
