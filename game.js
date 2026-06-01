@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v8.4-rizzleboards';
+  const BUILD = 'v9.0-playpass1';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -1383,6 +1383,15 @@
       elRank.style.color = rank.color;
       elRank.style.textShadow = '0 0 24px ' + rank.color + '88';
     }
+    // Mini stats — secondary detail strip
+    const dist = Math.floor(state.distance / 10);
+    setText($('finalDist'),   dist.toLocaleString() + 'm');
+    const t = Math.max(0, state.runTime);
+    const m = Math.floor(t / 60);
+    const s = Math.floor(t % 60).toString().padStart(2, '0');
+    setText($('finalTime'),   m + ':' + s);
+    setText($('finalNear'),   String(state.nearMisses || 0));
+    setText($('finalBoosts'), String(state.watersGrabbed || 0));
     setMode('gameover');
   }
 
@@ -1489,6 +1498,50 @@
         { kind: 'fire', dx: 600,  variant: 'tall'  },
         { kind: 'fire', dx: 1200, variant: 'short' },
         { kind: 'fire', dx: 1800, variant: 'torch' },
+    ]},
+
+    // ── New patterns (playability pass) ──
+
+    // The "high jump" — an ember fire flanked by lifted waters so the player
+    // is rewarded for the long arc.
+    { name: 'emberDance', phase: 2, weight: 2, items: [
+        { kind: 'water', dx: 0,   lift: 140 },
+        { kind: 'fire',  dx: 320, variant: 'ember' },
+        { kind: 'water', dx: 620, lift: 80 },
+    ]},
+
+    // Tight pit + tall combo from short distance — emphasizes commit timing.
+    { name: 'commit',     phase: 3, weight: 2, items: [
+        { kind: 'fire', dx: 0,   variant: 'short' },
+        { kind: 'fire', dx: 620, variant: 'pit'  },
+    ]},
+
+    // A pure water river — bonus boost top-up. Easy to skip if you're already
+    // boosting, valuable if you're not.
+    { name: 'riverRun',   phase: 2, weight: 2, items: [
+        { kind: 'water', dx: 0,   lift: 60  },
+        { kind: 'water', dx: 200, lift: 100 },
+        { kind: 'water', dx: 400, lift: 70  },
+    ]},
+
+    // The "tease" — fake out: one tall fire then a wide gap, so the player
+    // has to slow their jump cadence.
+    { name: 'breather',   phase: 1, weight: 2, items: [
+        { kind: 'fire',  dx: 0,   variant: 'short' },
+        { kind: 'water', dx: 480, lift: 30  },
+    ]},
+
+    // Ember + reward — high jump into a high water = a satisfying chain.
+    { name: 'emberWater', phase: 3, weight: 1, items: [
+        { kind: 'fire',  dx: 0,   variant: 'ember' },
+        { kind: 'water', dx: 220, lift: 180 },
+    ]},
+
+    // Late game spectacle — pit, then tall, then ember. Hardest authored.
+    { name: 'gauntlet',   phase: 3, weight: 1, items: [
+        { kind: 'fire', dx: 0,    variant: 'pit'   },
+        { kind: 'fire', dx: 640,  variant: 'tall'  },
+        { kind: 'fire', dx: 1280, variant: 'ember' },
     ]},
   ];
 
