@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v7.3';
+  const BUILD = 'v7.4';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -1898,7 +1898,18 @@
   }
 
   // Boot
-  setText(elBest, 'BEST ' + state.best + ' m');
+  setText(elBest, 'BEST ' + state.best.toLocaleString());
+  // Show best on the title screen too (motivation hook on subsequent loads).
+  const elTitleBest = $('titleBest');
+  if (elTitleBest) {
+    if (state.best > 0) {
+      const r = rankFor(state.best);
+      elTitleBest.textContent = 'BEST  ' + state.best.toLocaleString() + '   ·   RANK ' + r.label;
+      elTitleBest.classList.remove('hidden');
+    } else {
+      elTitleBest.classList.add('hidden');
+    }
+  }
   setMode('title');
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();

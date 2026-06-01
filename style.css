@@ -305,6 +305,13 @@ html, body {
   letter-spacing: 0.18em;
   animation: pulse 0.8s ease-in-out infinite;
 }
+.title-best {
+  font-size: clamp(12px, 1.8vmin, 15px);
+  letter-spacing: 0.24em;
+  color: var(--boost);
+  opacity: 0.9;
+  margin-top: -4px;
+}
 .rank-row {
   display: grid;
   place-items: center;
