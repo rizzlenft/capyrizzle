@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v7.1';
+  const BUILD = 'v7.2';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -974,7 +974,7 @@
         if (state.boosting) {
           state.firesSmashed += 1;
           addCombo(1);
-          const pts = 25 * state.combo;
+          const pts = 10 * state.combo;
           awardBonus(pts);
           spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 24, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']);
           popup('SMASH +' + pts, o.x + o.w / 2, o.y - 4, '#ffe24c');
@@ -1056,22 +1056,20 @@
     if (state.hint.waterDone) state.hint.waterA = Math.max(0, state.hint.waterA - dt * 1.4);
 
     // ── Distance milestones ──────────────────────────────────────────
-    // Fire AT MOST ONCE per frame, no matter how many milestones the score
-    // crossed in one tick. nextMilestone snaps past current score so we can
-    // never loop. Bonuses go through awardBonus (does not feed distance).
-    if (state.score >= state.nextMilestone) {
+    // Milestones track METERS traveled, NOT score. This decouples them from
+    // the bonus-score feedback loop entirely — milestones fire on a clean,
+    // predictable distance cadence (every MILESTONE_M meters of actual
+    // forward travel). Always fires at most once per frame.
+    const distMeters = Math.floor(state.distance / 10);
+    if (distMeters >= state.nextMilestone) {
       const m = state.nextMilestone;
       addCombo(1);
-      const pts = 50 * state.combo;
+      const pts = 25 * state.combo;
       awardBonus(pts);
-      // Snap nextMilestone past the POST-bonus score. Critically the score
-      // includes bonusScore, so we must recompute after awarding — otherwise
-      // next frame's `score = distance/10 + bonusScore` jumps past nextMilestone
-      // again and we re-fire forever.
-      const newScore = Math.floor(state.distance / 10) + state.bonusScore;
-      const steps    = Math.max(1, Math.floor((newScore - m) / MILESTONE_M) + 1);
+      // Snap past current distance — distance is pure (no feedback).
+      const steps = Math.max(1, Math.floor((distMeters - m) / MILESTONE_M) + 1);
       state.nextMilestone = m + steps * MILESTONE_M;
-      showMilestone(m.toLocaleString() + ' — +' + pts);
+      showMilestone(m.toLocaleString() + 'm — +' + pts);
       state.flashWhite = Math.max(state.flashWhite, 0.06);
       shake(4, 0.18);
       blip(680, 0.20, 'triangle', 0.06, 1320);

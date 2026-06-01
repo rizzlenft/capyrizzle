@@ -226,22 +226,21 @@ function simulateScoring(seed = 1, ticks = 60 * 120) {
     state.distance += WARMUP_SPEED * dt * 1.5;
     state.score = Math.floor(state.distance / 10) + state.bonusScore;
 
-    // Per-tick event rates calibrated to a busy real-life run:
-    //   • smashes  ~2.4/s (good boost runs)
-    //   • pickups  ~1.2/s
-    //   • death    ~once every 30s of pressing your luck
-    if (rand() < 0.04)  { state.combo += 1; state.bonusScore += 25 * state.combo; }
-    if (rand() < 0.02)  { state.combo += 1; state.bonusScore += 5  * state.combo; }
+    // Per-tick event rates calibrated to a busy real-life run.
+    // Bonus amounts mirror current game.js values (combo capped at 20).
+    const cap = (c) => Math.min(20, c);
+    if (rand() < 0.04)  { state.combo = cap(state.combo + 1); state.bonusScore += 10 * state.combo; }
+    if (rand() < 0.02)  { state.combo = cap(state.combo + 1); state.bonusScore += 5  * state.combo; }
     if (rand() < 0.0005) { state.combo = 1; }
 
+    // Milestones are DISTANCE-driven now (no score-feedback possible).
     let fired = 0;
-    if (state.score >= state.nextMilestone) {
+    const distM = Math.floor(state.distance / 10);
+    if (distM >= state.nextMilestone) {
       const m = state.nextMilestone;
-      state.combo += 1;
-      state.bonusScore += 50 * state.combo;
-      // snap past POST-bonus score (matches game.js logic)
-      const newScore = Math.floor(state.distance / 10) + state.bonusScore;
-      const steps    = Math.max(1, Math.floor((newScore - m) / MILESTONE_M) + 1);
+      state.combo = cap(state.combo + 1);
+      state.bonusScore += 25 * state.combo;
+      const steps = Math.max(1, Math.floor((distM - m) / MILESTONE_M) + 1);
       state.nextMilestone = m + steps * MILESTONE_M;
       fired += 1;
     }
@@ -262,8 +261,11 @@ try {
     if (!Number.isFinite(r.score)) {
       throw new Error(`seed ${s}: NaN/Infinity score`);
     }
-    // Execution-time bound is the real freeze-detector. A 120s sim should
-    // run in well under 50ms; if it ever blows past 250ms we have a runaway.
+    // With distance-driven milestones + combo cap, a 120s sim score should
+    // be comfortably under 100k. Anything above suggests a regression.
+    if (r.score > 100000) {
+      throw new Error(`seed ${s}: 120s score=${r.score.toLocaleString()} dist=${Math.round(r.distance)} combo=${r.combo}`);
+    }
     if (r.elapsedMs > 250) {
       throw new Error(`seed ${s}: 120s sim took ${r.elapsedMs.toFixed(0)}ms (>250 budget)`);
     }
