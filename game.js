@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v9.0-playpass1';
+  const BUILD = 'v9.1-shield';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -1152,9 +1152,16 @@
     firesSmashed: 0,
     watersGrabbed: 0,
     nearMisses: 0,
+    shieldsGrabbed: 0,
     combo: 1,
     bestCombo: 1,           // best combo this run
     comboLevelShown: 0,     // last threshold index we celebrated
+
+    // Shield (one-hit immunity). Acquired from rare gold-star pickups.
+    // Consumed by the next fire collision: pop a SAVED! popup + spark burst
+    // and smash the fire instead of dying.
+    shield: false,
+    shieldFlash: 0,         // visual fade after consuming
 
     // brief slow-mo on near-miss (timer is decremented in REAL time)
     slowMo: 0,
@@ -1284,6 +1291,9 @@
     state.firesSmashed = 0;
     state.watersGrabbed = 0;
     state.nearMisses = 0;
+    state.shieldsGrabbed = 0;
+    state.shield = false;
+    state.shieldFlash = 0;
     state.combo = 1;
     state.bestCombo = 1;
     state.comboLevelShown = 0;
@@ -1392,6 +1402,17 @@
     setText($('finalTime'),   m + ':' + s);
     setText($('finalNear'),   String(state.nearMisses || 0));
     setText($('finalBoosts'), String(state.watersGrabbed || 0));
+    const shieldsEl = $('finalShields');
+    const shieldStat = document.querySelector('.mini-shield');
+    const shieldSep  = document.querySelector('.mini-shield-sep');
+    if (state.shieldsGrabbed > 0) {
+      setText(shieldsEl, String(state.shieldsGrabbed));
+      shieldStat && shieldStat.classList.remove('hidden');
+      shieldSep && shieldSep.classList.remove('hidden');
+    } else {
+      shieldStat && shieldStat.classList.add('hidden');
+      shieldSep && shieldSep.classList.add('hidden');
+    }
     setMode('gameover');
   }
 
@@ -1543,6 +1564,18 @@
         { kind: 'fire', dx: 640,  variant: 'tall'  },
         { kind: 'fire', dx: 1280, variant: 'ember' },
     ]},
+
+    // RARE: shield pickup, dropped between two safe fires. Player decides
+    // whether to risk an extra jump for a one-hit immunity buff.
+    { name: 'shieldDrop', phase: 2, weight: 1, items: [
+        { kind: 'fire',   dx: 0,   variant: 'short' },
+        { kind: 'shield', dx: 320, lift: 140 },
+        { kind: 'fire',   dx: 640, variant: 'short' },
+    ]},
+    // RARE: lone shield gift on a breather. Always grabbable.
+    { name: 'shieldGift', phase: 3, weight: 1, items: [
+        { kind: 'shield', dx: 0, lift: 110 },
+    ]},
   ];
 
   function currentPhase() {
@@ -1592,6 +1625,15 @@
         state.pickups.push({
           x: baseX, y: GROUND_Y - h - lift, w, h,
           kind: 'water',
+          phase: Math.random() * Math.PI * 2,
+        });
+        if (it.dx + w > span) span = it.dx + w;
+      } else if (it.kind === 'shield') {
+        const w = 44, h = 44;
+        const lift = it.lift != null ? it.lift : 120;
+        state.pickups.push({
+          x: baseX, y: GROUND_Y - h - lift, w, h,
+          kind: 'shield',
           phase: Math.random() * Math.PI * 2,
         });
         if (it.dx + w > span) span = it.dx + w;
@@ -1903,6 +1945,21 @@
           sfx.smash(state.combo);
           state.obstacles.splice(i, 1);
           continue;
+        } else if (state.shield) {
+          // Shield save — consume the shield, smash the fire, brief immunity.
+          state.shield = false;
+          state.shieldFlash = 0.6;
+          state.firesSmashed += 1;
+          // Keep the combo intact + small bonus.
+          const pts = 15 * state.combo;
+          awardBonus(pts);
+          spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 28, ['#ffd24a', '#ffe24c', '#fff7e0', '#ff5a3c']);
+          popup('SAVED!  +' + pts, o.x + o.w / 2, o.y - 4, '#ffd24a');
+          state.flashWhite = Math.max(state.flashWhite, 0.22);
+          shake(12, 0.22);
+          blip(720, 0.18, 'triangle', 0.08, 360);
+          state.obstacles.splice(i, 1);
+          continue;
         } else {
           die('fire');
           return;
@@ -1941,26 +1998,49 @@
       const hb = truckHitbox();
       if (!p.taken && aabb(hb.x, hb.y, hb.w, hb.h, p.x, p.y, p.w, p.h)) {
         p.taken = true;
-        state.watersGrabbed += 1;
-        addCombo(1);
-        const wasBoosting = state.boostTime > 0;
-        state.boostTime = Math.min(BOOST_MAX_TIME, state.boostTime + BOOST_TIME_PER);
-        // small score from water too, multiplied by combo
-        const pts = 5 * state.combo;
-        awardBonus(pts);
-        spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 14, ['#4ec5ff', '#a8e6ff', '#fff7e0']);
-        popup(wasBoosting ? '+SIREN' : 'SIREN!', p.x + p.w / 2, p.y, '#a8e6ff');
-        state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.10);
-        shake(wasBoosting ? 3 : 6, 0.14);
-        sfx.pickup(state.combo);
-        if (!wasBoosting) sfx.boost();
-        if (!state.hint.waterDone) {
-          state.hint.waterDone = true;
-          try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch {}
+        if (p.kind === 'shield') {
+          // Gold star — one-hit immunity. Replacing an existing shield
+          // grants the player a small consolation bonus instead.
+          if (state.shield) {
+            const pts = 25 * state.combo;
+            awardBonus(pts);
+            popup('+' + pts, p.x + p.w / 2, p.y, '#ffd24a');
+          } else {
+            state.shield = true;
+            popup('SHIELD!', p.x + p.w / 2, p.y, '#ffd24a');
+            blip(880, 0.12, 'triangle', 0.06, 1320);
+            blip(1200, 0.18, 'sine',     0.05, 1760);
+          }
+          state.shieldsGrabbed += 1;
+          addCombo(1);
+          spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 22, ['#ffd24a', '#ffe24c', '#fff7e0']);
+          state.flashWhite = Math.max(state.flashWhite, 0.14);
+          shake(7, 0.14);
+        } else {
+          state.watersGrabbed += 1;
+          addCombo(1);
+          const wasBoosting = state.boostTime > 0;
+          state.boostTime = Math.min(BOOST_MAX_TIME, state.boostTime + BOOST_TIME_PER);
+          // small score from water too, multiplied by combo
+          const pts = 5 * state.combo;
+          awardBonus(pts);
+          spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 14, ['#4ec5ff', '#a8e6ff', '#fff7e0']);
+          popup(wasBoosting ? '+SIREN' : 'SIREN!', p.x + p.w / 2, p.y, '#a8e6ff');
+          state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.10);
+          shake(wasBoosting ? 3 : 6, 0.14);
+          sfx.pickup(state.combo);
+          if (!wasBoosting) sfx.boost();
+          if (!state.hint.waterDone) {
+            state.hint.waterDone = true;
+            try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch {}
+          }
         }
       }
       if (p.taken || p.x + p.w < -60) state.pickups.splice(i, 1);
     }
+
+    // shield flash decay
+    if (state.shieldFlash > 0) state.shieldFlash = Math.max(0, state.shieldFlash - dt);
 
     // ── Cosmetics drift ──────────────────────────────────────────────
     Cosmetics.update(dt, worldSpeed);
@@ -2370,9 +2450,45 @@
   function drawPickups() {
     for (const p of state.pickups) {
       const bob = Math.sin(p.phase) * 5;
-      drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, '#4ec5ff');
-      Sprite.draw('water', p.x, p.y + bob, p.w, p.h, { phase: p.phase });
+      if (p.kind === 'shield') {
+        drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, '#ffd24a');
+        drawShieldStar(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w * 0.55, p.phase);
+      } else {
+        drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, '#4ec5ff');
+        Sprite.draw('water', p.x, p.y + bob, p.w, p.h, { phase: p.phase });
+      }
     }
+  }
+
+  // Five-pointed gold star with capybara mascot center.
+  function drawShieldStar(cx, cy, r, phase) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.sin(phase * 0.6) * 0.12);
+    // glow
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(0, 0, 4, 0, 0, r * 2);
+    g.addColorStop(0, 'rgba(255, 226, 76, 0.9)');
+    g.addColorStop(1, 'rgba(255, 226, 76, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, r * 2, 0, Math.PI * 2); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // star body
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = (i * Math.PI) / 5 - Math.PI / 2;
+      const rr = i % 2 === 0 ? r : r * 0.45;
+      const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = '#1a0f3a';
+    ctx.stroke();
+    // tiny capy face center
+    drawTinyCapy(0, 0, r * 0.32, { mouth: 'smile' });
+    ctx.restore();
   }
   function drawPickupHalo(cx, cy, w, phase, color) {
     const pulse = 0.5 + 0.5 * Math.sin(phase * 1.6);
@@ -2415,6 +2531,32 @@
       g.addColorStop(1, 'rgba(255, 90, 60, 0)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    // shield aura — gold rotating ring
+    if (state.shield || state.shieldFlash > 0) {
+      ctx.save();
+      const now = performance.now();
+      const alphaActive = state.shield ? 0.85 : Math.max(0, state.shieldFlash / 0.6);
+      ctx.globalAlpha = alphaActive;
+      ctx.globalCompositeOperation = 'lighter';
+      const rr = TRUCK_W * 0.7 + Math.sin(now / 220) * 4;
+      // arc dashes
+      ctx.strokeStyle = '#ffd24a';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([14, 10]);
+      ctx.lineDashOffset = -now / 50;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      ctx.stroke();
+      // soft fill
+      const g = ctx.createRadialGradient(cx, cy, rr * 0.5, cx, cy, rr * 1.1);
+      g.addColorStop(0, 'rgba(255, 226, 76, 0)');
+      g.addColorStop(0.7, 'rgba(255, 226, 76, 0.18)');
+      g.addColorStop(1, 'rgba(255, 226, 76, 0)');
+      ctx.fillStyle = g;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(cx, cy, rr * 1.1, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
     // bob (subtle vertical wobble while grounded)
