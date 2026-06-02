@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v9.2-skillpass';
+  const BUILD = 'v9.3-telegraph';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -1202,6 +1202,7 @@
     // entities
     obstacles: [],   // {x,y,w,h,kind:'fire',phase}
     pickups: [],     // {x,y,w,h,kind:'water',phase,taken?}
+    telegraphs: [],  // {text, color, x, y, life, max}
     particles: [],
     popups: [],
 
@@ -1342,6 +1343,7 @@
     state.pickups.length = 0;
     state.particles.length = 0;
     state.popups.length = 0;
+    state.telegraphs.length = 0;
 
     state.nextObstacleDist = 900;
     state.nextPickupDist   = 700;
@@ -1633,9 +1635,25 @@
     return candidates[0];
   }
 
+  // Special patterns get an announce banner — gives the player a
+  // moment to brace before the bigger set-pieces hit the screen.
+  const TELEGRAPHS = {
+    gauntlet:   { text: 'GAUNTLET!',  color: '#ff5a3c' },
+    ironRun:    { text: 'IRON RUN!',  color: '#ff3a2a' },
+    triple:     { text: 'TRIPLE!',    color: '#ff8a3c' },
+    rewardRun:  { text: 'REWARD!',    color: '#ffd24a' },
+    shieldGift: { text: 'SHIELD!',    color: '#ffd24a' },
+    shieldDrop: { text: 'SHIELD!',    color: '#ffd24a' },
+    emberDance: { text: 'EMBER DANCE!', color: '#ff3a8a' },
+    waterChain: { text: 'WATER CHAIN!', color: '#4ec5ff' },
+    riverRun:   { text: 'RIVER!',     color: '#4ec5ff' },
+  };
+
   function spawnPattern() {
     const p = pickPattern();
     let span = 0;
+    const tele = TELEGRAPHS[p.name];
+    if (tele) showTelegraph(tele.text, tele.color);
     for (const it of p.items) {
       const baseX = W + 80 + it.dx;
       if (it.kind === 'fire') {
@@ -1819,6 +1837,22 @@
     void elMilestone.offsetWidth;
     elMilestone.style.animation = '';
     setTimeout(() => elMilestone.classList.add('hidden'), 1100);
+  }
+  // Floating in-canvas banner that streaks in from the right edge along
+  // the obstacle lane. Sells "something special is incoming."
+  function showTelegraph(text, color) {
+    state.telegraphs.push({
+      text, color,
+      x: W + 40, y: GROUND_Y - 210,
+      life: 1.6, max: 1.6,
+    });
+  }
+  // Debug hook: window.__cr_telegraph(text, color) for visual verification.
+  if (/[?&]debug=1\b/.test(location.search)) {
+    window.__cr_telegraph = (text, color) => {
+      showTelegraph(text || 'TEST!', color || '#ff5a3c');
+      return { count: state.telegraphs.length, mode };
+    };
   }
 
   // ═════════════════════════════════════════════════════════════════════
@@ -2085,6 +2119,16 @@
     // shield flash decay
     if (state.shieldFlash > 0) state.shieldFlash = Math.max(0, state.shieldFlash - dt);
 
+    // telegraph banners slide left + ease to a stop, then fade out
+    for (let i = state.telegraphs.length - 1; i >= 0; i--) {
+      const t = state.telegraphs[i];
+      t.life -= dt;
+      // ease from W+40 → ~W*0.55 over the first third, then hang there.
+      const targetX = W * 0.55;
+      t.x += (targetX - t.x) * Math.min(1, dt * 5.5);
+      if (t.life <= 0) state.telegraphs.splice(i, 1);
+    }
+
     // Combo decay — drop by 1 every COMBO_DECAY_STEP once grace expires.
     // Stops at combo 1 (never resets the run to 0, that's reserved for hits).
     if (state.combo > 1) {
@@ -2232,6 +2276,7 @@
     drawTruck();
 
     drawParticles();
+    drawTelegraphs();
     drawPopups();
     drawBoostOverlay();
     drawHints();
@@ -2650,6 +2695,49 @@
         ctx.fill();
       } else {
         ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      }
+      ctx.restore();
+    }
+  }
+  function drawTelegraphs() {
+    for (const t of state.telegraphs) {
+      const fade = clamp(t.life / t.max, 0, 1);
+      // hold full alpha for the first 60%, then fade out
+      const a = fade > 0.4 ? 1 : fade / 0.4;
+      ctx.save();
+      ctx.globalAlpha = a;
+      // pulsing right-side streak trail (lighter blend so it glows)
+      ctx.globalCompositeOperation = 'lighter';
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 90);
+      ctx.fillStyle = t.color;
+      ctx.globalAlpha = a * 0.35 * pulse;
+      ctx.fillRect(t.x + 60, t.y - 6, W - t.x, 12);
+      ctx.globalAlpha = a;
+      ctx.globalCompositeOperation = 'source-over';
+      // banner bg
+      ctx.font = 'bold 30px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      const labelW = ctx.measureText(t.text).width + 32;
+      ctx.fillStyle = 'rgba(26, 15, 58, 0.85)';
+      rrect(t.x - labelW / 2, t.y - 26, labelW, 48, 10); ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = t.color;
+      rrect(t.x - labelW / 2, t.y - 26, labelW, 48, 10); ctx.stroke();
+      // text
+      ctx.fillStyle = t.color;
+      ctx.lineWidth = 5; ctx.strokeStyle = '#1a0f3a';
+      ctx.strokeText(t.text, t.x, t.y + 8);
+      ctx.fillText(t.text, t.x, t.y + 8);
+      // tiny chevrons pointing right (toward the incoming pattern)
+      ctx.strokeStyle = t.color;
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 3; i++) {
+        const cx = t.x + labelW / 2 + 14 + i * 12;
+        const wob = Math.sin(performance.now() / 120 + i) * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx,     t.y - 8 + wob);
+        ctx.lineTo(cx + 7, t.y + wob);
+        ctx.lineTo(cx,     t.y + 8 + wob);
+        ctx.stroke();
       }
       ctx.restore();
     }
