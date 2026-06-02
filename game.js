@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.5.1-desktop-keys';
+  const BUILD = 'v27.5.2-embed-chrome';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS

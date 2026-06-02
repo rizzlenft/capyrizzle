@@ -11,7 +11,32 @@
 <meta property="og:title" content="CapyRizzle Rush" />
 <meta property="og:description" content="Rizzle the capy firefighter sprints through a burning city. SPACEBAR to jump. Built for CapyJam 2026." />
 <title>CapyRizzle Rush</title>
-<link rel="stylesheet" href="style.css?v=27.5.1-desktop-keys" />
+<link rel="stylesheet" href="style.css?v=27.5.2-embed-chrome" />
+<script>
+(function () {
+  var top = 0;
+  try {
+    var p = new URLSearchParams(location.search);
+    var raw = p.get('chrome') || p.get('embedTop') || p.get('hostTop');
+    if (raw != null) top = Math.max(0, parseInt(raw, 10) || 0);
+    else if (p.has('embed') && p.get('embed') !== '0') top = 56;
+    else {
+      var embedded = false;
+      try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
+      if (embedded) top = 56;
+      else if (/play\.fun/i.test(document.referrer || '')) top = 56;
+    }
+  } catch (e) {}
+  if (top > 0) {
+    var r = document.documentElement;
+    r.classList.add('host-chrome');
+    r.style.setProperty('--host-chrome-top', top + 'px');
+    r.style.setProperty('--app-vh', 'calc(100vh - ' + top + 'px)');
+    r.style.setProperty('--app-svh', 'calc(100svh - ' + top + 'px)');
+    r.style.setProperty('--app-dvh', 'calc(100dvh - ' + top + 'px)');
+  }
+})();
+</script>
 </head>
 <body>
   <div id="stage">
@@ -111,6 +136,6 @@
     <div id="debugState">mode: —</div>
   </div>
 
-  <script src="game.js?v=27.5.1-desktop-keys"></script>
+  <script src="game.js?v=27.5.2-embed-chrome"></script>
 </body>
 </html>

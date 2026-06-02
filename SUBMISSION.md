@@ -48,6 +48,12 @@ Use this the day you ship. Official rules from the jam announcement are summariz
 - `server.log` is gitignored dev noise.
 - Debug HUD hidden unless `?debug=1`.
 
+## play.fun / iframe embed
+
+When the game runs inside a host iframe (e.g. play.fun), it **auto-shifts down 56px** so the host toolbar and in-game HUD both fit. Standalone GitHub Pages is unchanged.
+
+Tune if needed: `?chrome=64` (pixels) or force on: `?embed=1`. Disable: `?chrome=0`.
+
 ## Deadline
 
 **June 11, 2026** — allow time for deploy + one mobile check the night before.

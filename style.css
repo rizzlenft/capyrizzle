@@ -9,6 +9,11 @@
   --capy: #b4884f;
   --panel: rgba(26, 15, 58, 0.78);
   --panel-border: rgba(255, 247, 224, 0.35);
+  /* Host platform toolbar (play.fun iframe) — set via JS when embedded */
+  --host-chrome-top: 0px;
+  --app-vh: 100vh;
+  --app-svh: 100svh;
+  --app-dvh: 100dvh;
 }
 
 #debugTag, #debugState {
@@ -44,7 +49,10 @@ html, body {
 /* Stage: game frame + full-screen scrollable menus (title / game over). */
 #stage {
   position: fixed;
-  inset: 0;
+  top: var(--host-chrome-top);
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   place-items: center;
   background:
@@ -53,8 +61,8 @@ html, body {
 
 #frame {
   position: relative;
-  width: min(100vw, calc(100vh * 16 / 9));
-  height: min(100vh, calc(100vw * 9 / 16));
+  width: min(100vw, calc(var(--app-vh) * 16 / 9));
+  height: min(var(--app-vh), calc(100vw * 9 / 16));
   container-type: size;
   container-name: game;
   border-radius: 12px;
@@ -70,15 +78,14 @@ html, body {
 html.portrait-mobile[data-mode="playing"] #stage {
   display: grid;
   place-items: center;
-  height: 100svh;
-  height: 100dvh;
+  height: var(--app-svh);
   padding: 0;
 }
 html.portrait-mobile[data-mode="playing"] #frame {
-  width: min(100vw, calc(100svh * 16 / 9));
-  height: min(100svh, calc(100vw * 9 / 16));
+  width: min(100vw, calc(var(--app-svh) * 16 / 9));
+  height: min(var(--app-svh), calc(100vw * 9 / 16));
   max-width: 100vw;
-  max-height: 100svh;
+  max-height: var(--app-svh);
   flex: none;
   aspect-ratio: auto;
   min-height: 0;
@@ -99,8 +106,7 @@ html.portrait-mobile[data-mode="gameover"] #stage {
   align-items: stretch;
   justify-content: flex-start;
   place-items: stretch;
-  height: 100dvh;
-  height: 100svh;
+  height: var(--app-svh);
   padding: 0;
   overflow: hidden;
 }
@@ -652,7 +658,10 @@ html.touch-ui .pwr-readout,
 /* ── Overlays (title / game over) — scrollable, not trapped in short frame ── */
 .overlay {
   position: fixed;
-  inset: 0;
+  top: var(--host-chrome-top);
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 12;
   display: flex;
   align-items: flex-start;
@@ -685,7 +694,10 @@ html.portrait-mobile[data-mode="title"] #title.overlay {
 }
 html.portrait-mobile[data-mode="gameover"] #gameover.overlay:not(.hidden) {
   position: fixed;
-  inset: 0;
+  top: var(--host-chrome-top);
+  right: 0;
+  bottom: 0;
+  left: 0;
   flex: none;
   width: 100%;
   max-height: none;
