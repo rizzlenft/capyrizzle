@@ -17,7 +17,7 @@ python3 serve.py 5777
 
 ## Controls
 
-- **Space / Tap / Click** — jump (clear every fire)
+- **Tap / Click** — jump (clear every fire)
 - Early runs get **full-height jump assist**; short-hop is a late-run skill
 - **BOOST** (blue bucket) — faster truck + 2× points; you still must jump fires
 - **ARMOR** (gold star) — blocks one hit per run

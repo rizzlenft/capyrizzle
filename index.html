@@ -9,9 +9,9 @@
 <meta name="game:event" content="capyjam-2026" />
 <meta name="description" content="One-button capy firetruck endless rush for CapyJam 2026 — jump every fire, boost the silly city." />
 <meta property="og:title" content="CapyRizzle Rush" />
-<meta property="og:description" content="Rizzle the capy firefighter sprints through a burning city. SPACEBAR to jump. Built for CapyJam 2026." />
+<meta property="og:description" content="Rizzle the capy firefighter sprints through a burning city. Tap to jump. Built for CapyJam 2026." />
 <title>CapyRizzle Rush</title>
-<link rel="stylesheet" href="style.css?v=27.5.2-embed-chrome" />
+<link rel="stylesheet" href="style.css?v=27.5.3-tap-copy" />
 <script>
 (function () {
   var top = 0;
@@ -69,7 +69,7 @@
         </header>
         <div class="hud-bottom">
           <div id="playHints" class="play-hints hidden" aria-live="polite">
-            <p class="play-hint hidden" id="hintJump">SPACEBAR to jump every fire</p>
+            <p class="play-hint hidden" id="hintJump">TAP to jump every fire</p>
             <p class="play-hint hidden" id="hintWater">BOOST bucket = speed — still jump fires!</p>
             <p class="play-hint hidden" id="hintShield">ARMOR star = one save this run</p>
           </div>
@@ -87,10 +87,7 @@
         <p class="title-kicker">🦫 CapyJam 2026 · silly city sprint</p>
         <h1 class="logo"><span class="line1">CAPYRIZZLE</span><span class="line2">RUSH</span></h1>
         <p class="run-theme" id="titleTheme">☀️ SUMMER SOAK · DUSK</p>
-        <p class="tag" id="titleTag">
-          <span class="tag-desktop">Rizzle the capy firefighter races the burning city — <strong>SPACEBAR to jump every fire</strong>, soak the silly crowd.</span>
-          <span class="tag-touch">Rizzle races the burning city — <strong>TAP to jump every fire</strong>, soak the crowd.</span>
-        </p>
+        <p class="tag" id="titleTag">Rizzle the capy firefighter races the burning city — <strong>TAP to jump every fire</strong>, soak the silly crowd.</p>
         <ul class="legend legend--compact">
           <li><span class="leg-icon water-icon" aria-hidden="true"></span><span class="legend-copy"><strong>BOOST</strong> — speed + 2× score (still jump fires)</span></li>
           <li><span class="leg-icon armor-icon" aria-hidden="true"></span><span class="legend-copy"><strong>ARMOR</strong> — one save per run</span></li>
@@ -136,6 +133,6 @@
     <div id="debugState">mode: —</div>
   </div>
 
-  <script src="game.js?v=27.5.2-embed-chrome"></script>
+  <script src="game.js?v=27.5.3-tap-copy"></script>
 </body>
 </html>

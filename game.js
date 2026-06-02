@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.5.2-embed-chrome';
+  const BUILD = 'v27.5.3-tap-copy';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -227,9 +227,9 @@
     if (elHintJump) {
       elHintJump.classList.toggle('hidden', !jumpOn || (soloHint && (shieldOn || waterOn)));
       elHintJump.style.opacity = String(clamp(state.hint.jumpA, 0, 1));
-      elHintJump.textContent = narrow
-        ? (hasJumpAssist() ? 'TAP — full jump' : 'TAP — jump fires')
-        : (hasJumpAssist() ? 'SPACEBAR — full jump' : 'SPACEBAR to jump every fire');
+      elHintJump.textContent = hasJumpAssist()
+        ? (narrow ? 'TAP — full jump' : 'TAP — full jump')
+        : (narrow ? 'TAP — jump fires' : 'TAP to jump every fire');
     }
     if (elHintWater) {
       elHintWater.classList.toggle('hidden', !waterOn || (soloHint && shieldOn));
@@ -2928,7 +2928,7 @@
   function release() {
     state.truck.jumpHeld = false;
     if (mode !== 'playing') return;
-    // Spacebar tap-release was cutting jumps short during the tutorial window.
+    // Quick tap-release was cutting jumps short during the tutorial window.
     if (!canShortHop()) return;
     const t = state.truck;
     if (!t.onGround && t.vy < JUMP_CUT_V) t.vy = JUMP_CUT_V;
@@ -3983,7 +3983,7 @@
     const trainLead = training ? (isFirst ? FIRST_FLAME_LEAD_PX : TRAINING_LEAD_PX) : 0;
     let span = 0;
     if (isFirst) {
-      showCenterBanner('SPACEBAR TO JUMP!', '#ffe24c');
+      showCenterBanner('TAP TO JUMP!', '#ffe24c');
     } else if (training && state.telegraphQuietT <= 0.2) {
       showLaneTelegraph('JUMP!', '#ffe24c');
     } else if (!skipSetTele) {
@@ -5672,7 +5672,7 @@
         ctx.globalAlpha = Math.min(1, t * 2);
         ctx.font = 'bold 20px ui-rounded, Nunito, system-ui, sans-serif';
         ctx.fillStyle = '#fff7e0';
-        ctx.fillText('SPACEBAR TO JUMP', 0, 38);
+        ctx.fillText('TAP TO JUMP', 0, 38);
         drawTinyCapy(0, 58, 10, { mouth: 'o', hatType: 'fd' });
       }
     }
