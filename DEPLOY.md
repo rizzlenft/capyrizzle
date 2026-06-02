@@ -15,7 +15,7 @@ git commit -m "CapyJam submit-ready: billboards, soundtrack, mute, docs"
 On github.com: **New repository** → name `capyrizzle-rush` → Public → no template.
 
 ```bash
-git remote add origin git@github.com:<YOUR_USER>/capyrizzle-rush.git
+git remote add origin https://github.com/rizzlenft/capyrizzle.git
 git push -u origin main
 ```
 
