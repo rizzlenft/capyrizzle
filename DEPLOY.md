@@ -21,9 +21,17 @@ git push -u origin main
 
 ## 3. Enable Pages
 
-Repo → **Settings** → **Pages** → Source: **Deploy from branch** → `main` / `/ (root)` → Save.
+**Option A — GitHub Actions (recommended, already in repo)**
 
-Wait ~1–2 min. Playable URL:
+Repo → **Settings** → **Pages** → Build and deployment → Source: **GitHub Actions**.
+
+The workflow `.github/workflows/pages.yml` runs on every push to `main`. First deploy takes ~2 min.
+
+**Option B — Branch deploy**
+
+Settings → Pages → Source: **Deploy from branch** → `main` / `/ (root)`.
+
+Playable URL (either option):
 
 `https://<YOUR_USER>.github.io/capyrizzle-rush/`
 
