@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.2-mobile-touch-audio';
+  const BUILD = 'v27.2.1-hud-stable';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -232,10 +232,28 @@
     }
   }
 
+  const hudDomCache = {
+    score: -1,
+    combo: -1,
+    bestLabel: '',
+    boostPct: -1,
+    boostReadout: '',
+    boostReadoutMode: '',
+    armorMode: '',
+    heatLabel: '',
+    heatSurge: false,
+    narrowDock: null,
+    chaseKey: '',
+  };
+
   function syncPowerHud() {
     const boostCap = getBoostCap();
     const boostFill = clamp(state.boostTime / boostCap, 0, 1);
-    setStyleWidth(elBoost, (boostFill * 100).toFixed(1) + '%');
+    const boostPct = Math.round(boostFill * 100);
+    if (elBoost && hudDomCache.boostPct !== boostPct) {
+      hudDomCache.boostPct = boostPct;
+      setStyleWidth(elBoost, boostPct + '%');
+    }
     const fuelLeft = state.boostTime > 0.05;
     const activeBoost = !!state.boosting;
     if (elBoostRow) {
@@ -247,17 +265,30 @@
           : 'Boost — grab blue buckets';
     }
     if (elBoostReadout) {
-      if (activeBoost) {
-        elBoostReadout.classList.remove('hidden');
-        elBoostReadout.setAttribute('aria-label', 'Boost active, double points');
-        setText(elBoostReadout, '2×');
-      } else if (fuelLeft) {
-        elBoostReadout.classList.remove('hidden');
-        elBoostReadout.setAttribute('aria-label', 'Boost fuel ' + state.boostTime.toFixed(1) + ' seconds');
-        setText(elBoostReadout, state.boostTime.toFixed(1) + 's');
-      } else {
-        elBoostReadout.classList.add('hidden');
-        elBoostReadout.removeAttribute('aria-label');
+      const mode = activeBoost ? '2x' : (fuelLeft ? 'fuel' : 'off');
+      if (hudDomCache.boostReadoutMode !== mode) {
+        hudDomCache.boostReadoutMode = mode;
+        if (activeBoost) {
+          elBoostReadout.classList.remove('hidden');
+          elBoostReadout.setAttribute('aria-label', 'Boost active, double points');
+          setText(elBoostReadout, '2×');
+          hudDomCache.boostReadout = '2×';
+        } else if (fuelLeft) {
+          elBoostReadout.classList.remove('hidden');
+        } else {
+          elBoostReadout.classList.add('hidden');
+          elBoostReadout.removeAttribute('aria-label');
+          hudDomCache.boostReadout = '';
+        }
+      }
+      if (fuelLeft && !activeBoost) {
+        const tenths = Math.round(state.boostTime * 10);
+        const label = (tenths / 10).toFixed(1) + 's';
+        if (hudDomCache.boostReadout !== label) {
+          hudDomCache.boostReadout = label;
+          elBoostReadout.setAttribute('aria-label', 'Boost fuel ' + label);
+          setText(elBoostReadout, label);
+        }
       }
     }
     if (elArmorRow) {
@@ -2966,6 +2997,14 @@
     state.cameraBob = 0;
     state.camPunch = 0;
     state.runStartT = 0;
+    hudDomCache.score = -1;
+    hudDomCache.combo = -1;
+    hudDomCache.bestLabel = '';
+    hudDomCache.boostPct = -1;
+    hudDomCache.boostReadout = '';
+    hudDomCache.boostReadoutMode = '';
+    hudDomCache.heatLabel = '';
+    hudDomCache.heatSurge = false;
 
     state.hint.jumpDone   = tutSeen;
     state.hint.waterDone  = tutSeen;
@@ -4589,33 +4628,57 @@
       blip(680, 0.20, 'triangle', 0.06, 1320);
     }
 
-    // ── HUD ── (defensive — missing elements must never freeze the loop)
-    syncUiMode();
+    // ── HUD ── (only touch DOM when values change — stops toolbar shimmer)
     syncPowerHud();
-    setText(elScore, state.score.toLocaleString());
+    if (hudDomCache.score !== state.score) {
+      hudDomCache.score = state.score;
+      setText(elScore, state.score.toLocaleString());
+    }
     const bestNum = Math.max(state.best, state.score).toLocaleString();
     const bestEl = elBest;
     if (bestEl) {
       const narrow = isNarrowHud();
-      bestEl.textContent = narrow ? bestNum : ('BEST ' + bestNum);
-      bestEl.title = 'Best score ' + bestNum;
+      const bestLabel = narrow ? bestNum : ('BEST ' + bestNum);
+      if (hudDomCache.bestLabel !== bestLabel) {
+        hudDomCache.bestLabel = bestLabel;
+        bestEl.textContent = bestLabel;
+        bestEl.title = 'Best score ' + bestNum;
+      }
       bestEl.classList.toggle('best-pill--compact', narrow);
     }
-    setText(elCombo, '×' + state.combo);
+    if (hudDomCache.combo !== state.combo) {
+      hudDomCache.combo = state.combo;
+      setText(elCombo, '×' + state.combo);
+    }
     if (elCombo) {
       elCombo.classList.toggle('hot',   state.combo >= 8  && state.combo < 16);
       elCombo.classList.toggle('blaze', state.combo >= 16);
     }
-    syncThemeHud();
     syncPlayHints();
-    const hudDock = document.querySelector('.hud-dock');
-    if (hudDock) hudDock.classList.toggle('hud-dock--narrow', isNarrowHud());
+    const narrowDock = isNarrowHud();
+    if (hudDomCache.narrowDock !== narrowDock) {
+      hudDomCache.narrowDock = narrowDock;
+      const hudDock = document.querySelector('.hud-dock');
+      if (hudDock) hudDock.classList.toggle('hud-dock--narrow', narrowDock);
+    }
     if (elHeatPill) {
-      if (state.heatTier >= 1 && !isNarrowHud()) {
+      const heatOn = state.heatTier >= 1 && !narrowDock;
+      const heatLabel = heatOn
+        ? ('HEAT ×' + state.heatTier + (state.surgeT > 0 ? ' · RUSH' : ''))
+        : '';
+      if (heatOn) {
+        if (hudDomCache.heatLabel !== heatLabel) {
+          hudDomCache.heatLabel = heatLabel;
+          setText(elHeatPill, heatLabel);
+        }
+        if (hudDomCache.heatSurge !== (state.surgeT > 0)) {
+          hudDomCache.heatSurge = state.surgeT > 0;
+          elHeatPill.classList.toggle('surge', state.surgeT > 0);
+        }
         elHeatPill.classList.remove('hidden');
-        setText(elHeatPill, 'HEAT ×' + state.heatTier + (state.surgeT > 0 ? ' · RUSH' : ''));
-        elHeatPill.classList.toggle('surge', state.surgeT > 0);
-      } else {
+      } else if (hudDomCache.heatLabel !== '') {
+        hudDomCache.heatLabel = '';
+        hudDomCache.heatSurge = false;
         elHeatPill.classList.add('hidden');
         elHeatPill.classList.remove('surge');
       }
