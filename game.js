@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v9.3-telegraph';
+  const BUILD = 'v9.4-achievements';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -131,6 +131,20 @@
 
   const HIGHSCORE_KEY = 'capyrizzlerush_best_v5';
   const TUTORIAL_KEY  = 'capyrizzlerush_tut_v5';
+  const ACHIEVE_KEY   = 'capyrizzlerush_ach_v1';
+  // First-time accomplishment definitions. Each fires at most once
+  // across runs (persisted via localStorage as a bitmap).
+  const ACHIEVEMENTS = [
+    { id: 'firstKm',       label: 'FIRST KILOMETER',  test: (s) => s.distance >= 1000 },
+    { id: 'firstX10',      label: 'COMBO x10',        test: (s) => s.combo    >= 10 },
+    { id: 'firstX20',      label: 'COMBO x20 MAX!',   test: (s) => s.combo    >= 20 },
+    { id: 'firstSaved',    label: 'FIRST SAVE!',      test: (s) => s.everSaved },
+    { id: 'firstBoost',    label: 'FIRST SIREN!',     test: (s) => s.boostUsed >= 1 },
+    { id: 'first5km',      label: '5 KILOMETERS',     test: (s) => s.distance >= 5000 },
+    { id: 'firstRankC',    label: 'RANK C OR BETTER', test: (s) => s.score >= 5000 },
+    { id: 'firstRankB',    label: 'RANK B HERO',      test: (s) => s.score >= 15000 },
+    { id: 'firstRankA',    label: 'RANK A LEGEND',    test: (s) => s.score >= 30000 },
+  ];
 
   // ─── UTILITIES ────────────────────────────────────────────────────────
   const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
@@ -1203,6 +1217,9 @@
     obstacles: [],   // {x,y,w,h,kind:'fire',phase}
     pickups: [],     // {x,y,w,h,kind:'water',phase,taken?}
     telegraphs: [],  // {text, color, x, y, life, max}
+    achievements: [],// {label, life, max} — first-time celebrations
+    achUnlocked: null, // Set of unlocked achievement ids (lazy-loaded)
+    everSaved: false,  // run-local flag, used by achievement test
     particles: [],
     popups: [],
 
@@ -1344,6 +1361,9 @@
     state.particles.length = 0;
     state.popups.length = 0;
     state.telegraphs.length = 0;
+    state.achievements.length = 0;
+    state.everSaved = false;
+    state.achUnlocked = loadAchievements();
 
     state.nextObstacleDist = 900;
     state.nextPickupDist   = 700;
@@ -1838,6 +1858,44 @@
     elMilestone.style.animation = '';
     setTimeout(() => elMilestone.classList.add('hidden'), 1100);
   }
+  // ═════════════════════════════════════════════════════════════════════
+  //   ACHIEVEMENTS
+  // ═════════════════════════════════════════════════════════════════════
+  function loadAchievements() {
+    try {
+      const raw = localStorage.getItem(ACHIEVE_KEY);
+      if (!raw) return new Set();
+      return new Set(JSON.parse(raw));
+    } catch { return new Set(); }
+  }
+  function saveAchievements() {
+    try {
+      localStorage.setItem(ACHIEVE_KEY, JSON.stringify([...state.achUnlocked]));
+    } catch {}
+  }
+  function checkAchievements() {
+    if (!state.achUnlocked) return;
+    for (const a of ACHIEVEMENTS) {
+      if (state.achUnlocked.has(a.id)) continue;
+      if (a.test(state)) {
+        state.achUnlocked.add(a.id);
+        saveAchievements();
+        showAchievement(a.label);
+      }
+    }
+  }
+  // Achievement banner — bigger, slower, gold-bordered. Distinct from
+  // telegraphs so first-time moments feel like a real reward.
+  function showAchievement(label) {
+    state.achievements.push({
+      label, life: 2.6, max: 2.6,
+    });
+    // Brief celebratory blip stack.
+    blip(1000, 0.10, 'triangle', 0.06, 1480);
+    blip(1320, 0.16, 'sine',     0.05, 1860);
+    state.flashWhite = Math.max(state.flashWhite, 0.12);
+  }
+
   // Floating in-canvas banner that streaks in from the right edge along
   // the obstacle lane. Sells "something special is incoming."
   function showTelegraph(text, color) {
@@ -2020,6 +2078,7 @@
           // Shield save — consume the shield, smash the fire, brief immunity.
           state.shield = false;
           state.shieldFlash = 0.6;
+          state.everSaved = true;
           state.firesSmashed += 1;
           // Keep the combo intact + small bonus.
           const pts = 15 * state.combo;
@@ -2128,6 +2187,16 @@
       t.x += (targetX - t.x) * Math.min(1, dt * 5.5);
       if (t.life <= 0) state.telegraphs.splice(i, 1);
     }
+
+    // achievement banners tick down
+    for (let i = state.achievements.length - 1; i >= 0; i--) {
+      const a = state.achievements[i];
+      a.life -= dt;
+      if (a.life <= 0) state.achievements.splice(i, 1);
+    }
+
+    // First-time achievement checks (cheap — early-outs on unlocked)
+    checkAchievements();
 
     // Combo decay — drop by 1 every COMBO_DECAY_STEP once grace expires.
     // Stops at combo 1 (never resets the run to 0, that's reserved for hits).
@@ -2278,6 +2347,7 @@
     drawParticles();
     drawTelegraphs();
     drawPopups();
+    drawAchievements();
     drawBoostOverlay();
     drawHints();
 
@@ -2740,6 +2810,63 @@
         ctx.stroke();
       }
       ctx.restore();
+    }
+  }
+  function drawAchievements() {
+    if (state.achievements.length === 0) return;
+    let stackY = 95;
+    for (const a of state.achievements) {
+      const t = a.life / a.max;
+      // intro slide (first 0.25s), hold, then fade out (last 0.5s)
+      const slideIn = clamp((1 - t) / 0.1, 0, 1);
+      const fadeOut = clamp(t / (0.5 / a.max), 0, 1);
+      const alpha = Math.min(slideIn, fadeOut);
+      const dx = (1 - slideIn) * 80; // slide from right
+      const cx = W / 2 + dx;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = 'bold 22px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      const w = Math.max(280, ctx.measureText(a.label).width + 80);
+      const h = 56;
+      const x = cx - w / 2;
+      const y = stackY;
+      // glow / gold border
+      const grad = ctx.createLinearGradient(x, y, x + w, y);
+      grad.addColorStop(0,   '#ffd24a');
+      grad.addColorStop(0.5, '#ffe24c');
+      grad.addColorStop(1,   '#ffd24a');
+      ctx.shadowColor = '#ffd24a';
+      ctx.shadowBlur = 22 * alpha;
+      ctx.fillStyle = 'rgba(26, 15, 58, 0.92)';
+      rrect(x, y, w, h, 12); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 3; ctx.strokeStyle = grad;
+      rrect(x, y, w, h, 12); ctx.stroke();
+      // label
+      ctx.fillStyle = grad;
+      ctx.lineWidth = 5; ctx.strokeStyle = '#1a0f3a';
+      ctx.strokeText(a.label, cx + 14, y + 30);
+      ctx.fillText(a.label, cx + 14, y + 30);
+      // tiny "FIRST!" badge on the left
+      ctx.font = 'bold 11px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.fillStyle = '#ffd24a';
+      ctx.fillRect(x + 12, y + 18, 44, 20);
+      ctx.fillStyle = '#1a0f3a';
+      ctx.fillText('FIRST', x + 34, y + 32);
+      // small star icon
+      const sx = x + 78, sy = y + 28;
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 ? 4 : 9;
+        const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+        ctx.lineTo(sx + Math.cos(ang) * r, sy + Math.sin(ang) * r);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      stackY += h + 8;
     }
   }
   function drawPopups() {
