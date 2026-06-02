@@ -947,7 +947,7 @@ html.touch-ui .mute-btn {
   color: #a8e6ff;
   opacity: 0.9;
 }
-.sound-hint.hidden { display: none !important; }
+.sound-hint.hidden { display: none !important; pointer-events: none !important; }
 
 html.portrait-mobile .sound-hint {
   font-size: 11px;
@@ -975,6 +975,12 @@ html.portrait-mobile .stats-mini {
   gap: 4px 8px;
 }
 
+#game:focus { outline: none; }
+#game:focus-visible {
+  outline: 2px solid rgba(78, 197, 255, 0.55);
+  outline-offset: -2px;
+}
+
 .title-best {
   font-size: clamp(11px, 1.7vmin, 14px);
   letter-spacing: 0.2em;
@@ -983,7 +989,7 @@ html.portrait-mobile .stats-mini {
   line-height: 1.3;
 }
 
-.hidden { display: none !important; }
+.hidden { display: none !important; pointer-events: none !important; }
 
 /* Game over */
 .gg {

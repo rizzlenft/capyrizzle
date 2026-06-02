@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.5-mobile-play';
+  const BUILD = 'v27.5.1-desktop-keys';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -2900,11 +2900,22 @@
   // ═════════════════════════════════════════════════════════════════════
   //   INPUT
   // ═════════════════════════════════════════════════════════════════════
+  function isPointerEvent(e) {
+    if (!e) return false;
+    const t = e.type || '';
+    return t === 'pointerdown' || t === 'mousedown' || t === 'touchstart';
+  }
+
+  function focusGameSurface() {
+    if (isTouchUi() || !canvas || mode !== 'playing') return;
+    try { canvas.focus({ preventScroll: true }); } catch (_) { canvas.focus(); }
+  }
+
   function press(e) {
     if (e && e.cancelable) e.preventDefault();
     unlockAudioSync();
     if (mode === 'title' || mode === 'gameover') {
-      if (e && e.target && e.target.closest && e.target.closest('.bigbtn')) return;
+      if (isPointerEvent(e) && e.target && e.target.closest && e.target.closest('.bigbtn')) return;
       startGame();
       return;
     }
@@ -2927,19 +2938,25 @@
   elGameOver.addEventListener('pointerdown', press);
   canvas.addEventListener('pointerup',     release);
   window.addEventListener('pointercancel', release);
+  function isJumpKey(e) {
+    return e && (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW');
+  }
+
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
-      if (e.repeat && mode === 'playing') {
-        state.truck.jumpHeld = true;
-        return;
-      }
-      if (e.repeat) return;
-      press(e);
+    if (!isJumpKey(e)) return;
+    if (mode === 'playing' || mode === 'title' || mode === 'gameover') e.preventDefault();
+    if (e.repeat && mode === 'playing') {
+      state.truck.jumpHeld = true;
+      return;
     }
-  });
+    if (e.repeat) return;
+    press(e);
+  }, { capture: true });
   window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
-  });
+    if (!isJumpKey(e)) return;
+    if (mode === 'playing') e.preventDefault();
+    release();
+  }, { capture: true });
   function bindPlayButton(btn) {
     if (!btn) return;
     const go = (e) => {
@@ -3012,9 +3029,12 @@
     elTitle.classList.toggle('hidden', m !== 'title');
     elGameOver.classList.toggle('hidden', m !== 'gameover');
     elHud.classList.toggle('hidden', m === 'title' || m === 'gameover');
+    if (elTitle) elTitle.inert = m !== 'title';
+    if (elGameOver) elGameOver.inert = m !== 'gameover';
     syncUiMode();
     syncThemeHud();
     applyAudioLevels();
+    if (m === 'playing') focusGameSurface();
   }
 
   function resetRun() {
