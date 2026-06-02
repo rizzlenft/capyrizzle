@@ -12,7 +12,7 @@ Use this the day you ship. Official rules from the jam announcement are summariz
 
 ### P0 — blockers
 
-- [ ] **Public URL** live (e.g. `https://<user>.github.io/capyrizzle-rush/`)
+- [ ] **Public URL** live: `https://rizzlenft.github.io/capyrizzle/`
 - [ ] Open URL in **incognito** — title → PLAY → one full run → game over
 - [ ] **Sound** works after first tap (iOS Safari if possible); **🔊 mute** toggles off/on
 - [ ] **Mobile** — portrait/landscape; tap to jump on phone
@@ -26,7 +26,7 @@ Use this the day you ship. Official rules from the jam announcement are summariz
 - [ ] Title screen clearly says **CapyJam 2026** (already in-game)
 - [ ] One-line pitch ready: *“One-button capy firetruck endless rush — jump every fire, boost the city.”*
 - [ ] `node tools/playtest-all.mjs` exits 0
-- [ ] Commit & push final build (note `BUILD` string in console / `?debug=1`)
+- [ ] Commit & push final build (`v27.0-capyjam-ship` in console / `?debug=1`)
 
 ### P2 — polish (if time)
 
@@ -39,7 +39,7 @@ Use this the day you ship. Official rules from the jam announcement are summariz
 
 1. Live scrolling city + capy crowd on title (good first impression).
 2. Tap PLAY → READY/GO → first fire teachable with jump assist.
-3. One BOOST pickup shows speed + 2× without breaking jump rules.
+3. One BOOST pickup shows faster pace + 2× points without breaking jump rules.
 4. Death → rank + stats → instant retry.
 
 ## Known non-issues

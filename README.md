@@ -19,12 +19,31 @@ python3 serve.py 5777
 
 - **Space / Tap / Click** — jump (clear every fire)
 - Early runs get **full-height jump assist**; short-hop is a late-run skill
-- **BOOST** (blue bucket) — speed burst + 2× score; you still must jump fires
+- **BOOST** (blue bucket) — faster truck + 2× points; you still must jump fires
 - **ARMOR** (gold star) — blocks one hit per run
+
+## Difficulty curve (how a run ramps)
+
+Difficulty stacks **five layers** that all tighten over time:
+
+| Layer | What changes | When |
+|-------|----------------|------|
+| **Speed** | 300 px/s flat → +8/s to 480 → +7/s to 640 cap | 0–5s flat, then ramp; max ~60s |
+| **Heat tier** | 7 steps (HUD `HEAT ×n`) — gaps shrink, combo decays faster, fewer pickups | 32s, 50s, 70s, 92s, 118s, 150s |
+| **Phase** | Pattern pool unlocks (1→6) | 16s / 36s / 58s / 88s / 120s |
+| **Waves** | Reward → pressure → spectacle blocks; forced reward if boost dry | After training; shuffled act queues |
+| **Surge** | +14% speed, tighter gaps for 6s | Every 16s from heat tier 4 (~92s) |
+
+**Teaching window:** first spawn @ 3.8s, 4 training singles, then **TWO FIRES — JUMP TWICE!** Each act opens on a **REWARD RUN** (water/armor), then shuffled set-pieces. **Act II (16s)** doubles; **Act III (36s)** triples with readable fire sizes + ①②③ labels; **Act IV (58s)** four-fire spectacle. Relief water injects if you go several patterns without a bucket. All patterns respect `MIN_MULTI_FIRE_DX` (780px) at max speed + surge.
+
+```bash
+node tools/playtest-all.mjs         # jump math + gaps + progression + fires + release audit
+node tools/release-audit.mjs        # DOM wiring + deploy artifacts only
+```
 
 ## Scoring
 
-Score = distance + bonuses (near-miss, pickups, milestones, combo). Combo builds to ×20. Distance milestones every 250m.
+Score = distance + bonuses (near-miss, pickups, milestones, combo). Combo builds to ×20. Distance milestones every 250m. **Boost** = faster truck + 2× distance points and bonus points while active.
 
 | Rank | Score   |
 |------|--------:|
@@ -53,7 +72,8 @@ Score = distance + bonuses (near-miss, pickups, milestones, combo). Combo builds
 ```bash
 git remote add origin https://github.com/rizzlenft/capyrizzle.git
 git push -u origin main
-# Repo → Settings → Pages → Source: GitHub Actions
+# Actions deploys to gh-pages branch (see .github/workflows/pages.yml)
+# Repo → Settings → Pages → Deploy from branch → gh-pages / (root)
 # Play: https://rizzlenft.github.io/capyrizzle/
 ```
 
@@ -61,7 +81,7 @@ Submit that **root URL** on the jam form (not an embed iframe).
 
 ## Tech
 
-- Canvas 2D, no framework, no build step (~230 KB total)
+- Canvas 2D, no framework, no build step (~245 KB total)
 - WebAudio SFX + procedural soundtrack (🔊 mute in-game), `localStorage` for best/high score, tutorial, mute
 - Cosmetic layer separated from gameplay (see header comment in `game.js`)
 
@@ -71,7 +91,7 @@ Submit that **root URL** on the jam form (not an embed iframe).
 node tools/playtest-all.mjs
 ```
 
-Validates jump math at all speed tiers, gap spacing, and progression curve.
+Validates jump math at all speed tiers, gap spacing, progression curve, fire readability, and pre-ship wiring.
 
 ## Debug
 

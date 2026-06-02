@@ -9,6 +9,8 @@ const scripts = [
   'gap-audit.mjs',
   'playtest-curve.mjs',
   'playtest-progression.mjs',
+  'playtest-fires.mjs',
+  'release-audit.mjs',
 ];
 
 let failed = false;

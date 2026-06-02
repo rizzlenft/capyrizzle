@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <meta name="theme-color" content="#2a1b6b" />
 <meta name="game:owner" content="rizzle" />
 <meta name="game:title" content="CapyRizzle Rush" />
@@ -19,47 +19,39 @@
       <canvas id="game" width="960" height="540" aria-label="CapyRizzle Rush game"></canvas>
 
       <div id="hud" class="hidden">
-        <header class="hud-bar">
-          <div class="hud-pill score-pill" id="score">0</div>
-          <div class="hud-pill combo-pill" id="combo">×1</div>
-          <div class="hud-best-col">
-            <div class="hud-pill best-pill" id="best">BEST 0</div>
-            <div class="best-chase hidden" id="bestChase"></div>
+        <header class="hud-dock" aria-label="Run status">
+          <div class="hud-zone hud-zone-left">
+            <span class="hud-score" id="score">0</span>
+            <span class="hud-pill combo-pill" id="combo">×1</span>
           </div>
-          <div class="hud-corner">
-            <div class="heat-pill hidden" id="heatPill">HEAT ×1</div>
-            <div class="theme-pill hidden" id="seasonPill" title="">☀️ SUMMER SOAK</div>
+          <div class="hud-zone hud-zone-mid" aria-label="Power-ups" aria-live="polite" aria-atomic="true">
+            <div class="pwr-slot" id="boostRow" title="Boost — blue buckets">
+              <span class="pwr-glyph water-icon" aria-hidden="true"></span>
+              <div class="pwr-track" aria-hidden="true"><div class="pwr-fill" id="boost"></div></div>
+              <span class="pwr-readout hidden" id="boostReadout"></span>
+            </div>
+            <div class="pwr-slot pwr-armor" id="armorRow" title="Armor — one save per run">
+              <span class="pwr-glyph armor-icon" aria-hidden="true"></span>
+              <span class="pwr-readout hidden" id="armorReadout"></span>
+            </div>
+          </div>
+          <div class="hud-zone hud-zone-right">
+            <span class="best-chase hidden" id="bestChase"></span>
+            <span class="hud-pill best-pill" id="best">BEST 0</span>
+            <span class="hud-meta theme-pill hidden" id="seasonPill" title="">☀️</span>
+            <span class="hud-meta heat-pill hidden" id="heatPill">HEAT ×1</span>
           </div>
         </header>
         <div class="hud-bottom">
           <div id="playHints" class="play-hints hidden" aria-live="polite">
             <p class="play-hint hidden" id="hintJump">SPACEBAR to jump every fire</p>
             <p class="play-hint hidden" id="hintWater">BOOST bucket = speed — still jump fires!</p>
-            <p class="play-hint hidden" id="hintShield">STAR = one extra life this run</p>
-          </div>
-          <div class="hud-dock">
-            <div class="power-row" id="boostRow">
-              <div class="power-icon water-icon" aria-hidden="true"></div>
-              <div class="power-meta">
-                <div class="power-title-row">
-                  <span class="power-name" id="boostLabel">BOOST</span>
-                  <span class="power-timer hidden" id="boostTimer"></span>
-                </div>
-                <div class="boost-bar"><div class="boost-fill" id="boost"></div></div>
-              </div>
-            </div>
-            <div class="power-row hidden" id="armorRow">
-              <div class="power-icon armor-icon" aria-hidden="true"></div>
-              <div class="power-meta">
-                <p class="power-name">ARMOR</p>
-                <p class="power-status" id="armorStatus">One extra life</p>
-              </div>
-            </div>
+            <p class="play-hint hidden" id="hintShield">ARMOR star = one save this run</p>
           </div>
         </div>
       </div>
 
-      <button type="button" id="muteBtn" class="mute-btn" aria-pressed="false" title="Mute sound">🔊</button>
+      <button type="button" id="muteBtn" class="mute-btn" aria-pressed="false" aria-label="Mute sound" title="Mute sound">🔊</button>
 
       <div id="comboPop" class="combo-pop hidden"></div>
       <div id="milestonePop" class="milestone-pop hidden"></div>
@@ -71,7 +63,7 @@
           <p class="run-theme" id="titleTheme">☀️ SUMMER SOAK · DUSK</p>
           <p class="tag">Rizzle the capy firefighter races the burning city — <strong>SPACEBAR to jump every fire</strong>, soak the silly crowd.</p>
           <ul class="legend">
-            <li><span class="leg-icon water-icon" aria-hidden="true"></span><span class="legend-copy"><strong>BOOST</strong> (blue bucket) — speed burst + 2× score. You still must jump.</span></li>
+            <li><span class="leg-icon water-icon" aria-hidden="true"></span><span class="legend-copy"><strong>BOOST</strong> (blue bucket) — faster truck + 2× points. You still must jump.</span></li>
             <li><span class="leg-icon armor-icon" aria-hidden="true"></span><span class="legend-copy"><strong>ARMOR</strong> (gold star) — one bonus life this run</span></li>
           </ul>
           <button class="bigbtn" id="start"><span class="btn-emoji" aria-hidden="true">🦫</span> PLAY</button>
@@ -91,7 +83,7 @@
           <div class="stats">
             <div class="stat"><div class="stat-label">SCORE</div><div class="stat-value" id="finalScore">0</div></div>
             <div class="stat"><div class="stat-label">BEST COMBO</div><div class="stat-value" id="finalCombo">×1</div></div>
-            <div class="stat"><div class="stat-label">FIRES SMASHED</div><div class="stat-value" id="finalSmashed">0</div></div>
+            <div class="stat"><div class="stat-label">FIRES CLEARED</div><div class="stat-value" id="finalSmashed">0</div></div>
             <div class="stat"><div class="stat-label">BEST</div><div class="stat-value" id="finalBest">0</div></div>
           </div>
           <div class="stats-mini">

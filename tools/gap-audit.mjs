@@ -40,9 +40,11 @@ function simulateJump() {
 
 const J = simulateJump();
 const cycle = J.airtime + CROUCH_TIME + 0.05;
+const WARMUP = num('WARMUP_SPEED');
+const MAX = num('MAX_SPEED');
 const speeds = [
-  { label: 'WARMUP', speed: 200 },
-  { label: 'MAX', speed: 480 },
+  { label: 'WARMUP', speed: WARMUP },
+  { label: 'MAX', speed: MAX },
   { label: 'ABS', speed: ABS },
   { label: 'SURGE', speed: ABS * SURGE },
 ];
@@ -73,3 +75,4 @@ console.log('Failures:', failures.length);
 for (const f of failures) {
   console.log(`  ${f.pattern} dx=${f.dx} @ ${f.label} (${f.speed}) need≥${f.need} have=${f.have}`);
 }
+if (failures.length > 0) process.exit(1);

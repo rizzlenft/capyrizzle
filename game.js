@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v23.0-submit-ready';
+  const BUILD = 'v27.0-capyjam-ship';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -169,7 +169,7 @@
     const nodes = [
       { el: elTitleTheme, text: fullTheme, color: season.accent },
       { el: elGoTheme, text: 'This run: ' + fullTheme, color: season.accent },
-      { el: elSeasonPill, text: truncateHudText(seasonText, 22), color: season.accent, title: fullTheme },
+      { el: elSeasonPill, text: season.emoji || '☀️', color: season.accent, title: fullTheme },
     ];
     for (const n of nodes) {
       if (!n.el) continue;
@@ -204,6 +204,63 @@
       elHintShield.style.opacity = String(clamp(state.hint.shieldA, 0, 1));
     }
   }
+
+  function syncPowerHud() {
+    const boostCap = getBoostCap();
+    const boostFill = clamp(state.boostTime / boostCap, 0, 1);
+    setStyleWidth(elBoost, (boostFill * 100).toFixed(1) + '%');
+    const fuelLeft = state.boostTime > 0.05;
+    const activeBoost = !!state.boosting;
+    if (elBoostRow) {
+      elBoostRow.classList.toggle('active-boost', fuelLeft);
+      elBoostRow.title = activeBoost
+        ? 'Boost active — faster truck, 2× scoring'
+        : fuelLeft
+          ? 'Boost fuel — jump fires still required'
+          : 'Boost — grab blue buckets';
+    }
+    if (elBoostReadout) {
+      if (activeBoost) {
+        elBoostReadout.classList.remove('hidden');
+        elBoostReadout.setAttribute('aria-label', 'Boost active, double points');
+        setText(elBoostReadout, '2×');
+      } else if (fuelLeft) {
+        elBoostReadout.classList.remove('hidden');
+        elBoostReadout.setAttribute('aria-label', 'Boost fuel ' + state.boostTime.toFixed(1) + ' seconds');
+        setText(elBoostReadout, state.boostTime.toFixed(1) + 's');
+      } else {
+        elBoostReadout.classList.add('hidden');
+        elBoostReadout.removeAttribute('aria-label');
+      }
+    }
+    if (elArmorRow) {
+      const armed = !!state.shield;
+      const canTake = state.armorSlots > 0;
+      elArmorRow.classList.toggle('active-armor', armed);
+      elArmorRow.classList.toggle('power-ready', !armed && canTake);
+      elArmorRow.classList.toggle('power-spent', !armed && !canTake);
+      elArmorRow.title = armed
+        ? 'Armor — blocks the next hit'
+        : canTake
+          ? 'Armor ready — one pickup per run'
+          : 'Armor used this run';
+      if (elArmorReadout) {
+        if (armed) {
+          elArmorReadout.classList.remove('hidden');
+          elArmorReadout.setAttribute('aria-label', 'Armor ready to block next hit');
+          setText(elArmorReadout, 'SAVE');
+        } else if (canTake) {
+          elArmorReadout.classList.add('hidden');
+          elArmorReadout.removeAttribute('aria-label');
+        } else {
+          elArmorReadout.classList.remove('hidden');
+          elArmorReadout.setAttribute('aria-label', 'Armor used this run');
+          setText(elArmorReadout, '—');
+        }
+      }
+    }
+  }
+
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   function logRunTheme() {
@@ -239,10 +296,11 @@
   const elHud        = $('hud');
   const elScore      = $('score');
   const elBest       = $('best');
-  const elBoost      = $('boost');
-  const elBoostLabel = $('boostLabel');
-  const elBoostTimer = $('boostTimer');
-  const elArmorRow   = $('armorRow');
+  const elBoost         = $('boost');
+  const elBoostReadout  = $('boostReadout');
+  const elBoostRow      = $('boostRow');
+  const elArmorReadout  = $('armorReadout');
+  const elArmorRow    = $('armorRow');
   const elHeatPill   = $('heatPill');
   const elCombo      = $('combo');
   const elComboPop   = $('comboPop');
@@ -254,7 +312,6 @@
   const elNewBest    = $('newBest');
   const btnStart     = $('start');
   const btnRetry     = $('retry');
-  const elDebugTag   = $('debugTag');
   const elDebugState = $('debugState');
   const elBestChase  = $('bestChase');
   const elTitleTheme = $('titleTheme');
@@ -264,7 +321,6 @@
   const elHintJump   = $('hintJump');
   const elHintWater  = $('hintWater');
   const elHintShield = $('hintShield');
-  const elArmorStatus = $('armorStatus');
   const elMuteBtn     = $('muteBtn');
 
   // ─── TUNING ───────────────────────────────────────────────────────────
@@ -284,7 +340,8 @@
   const JUMP_ASSIST_TIME   = 40;
   const JUMP_ASSIST_COUNT  = 20;
   const EASY_RUN_TIME      = 38;
-  const TRAINING_SPAWNS    = 5;
+  const TRAINING_SPAWNS    = 4;
+  const POST_TRAIN_DOUBLE  = true;  // one scripted double right after training
   const TRAINING_LEAD_PX   = 340;
   const FIRST_FLAME_LEAD_PX = 260;
 
@@ -308,7 +365,7 @@
   const SURGE_SPEED_MUL  = 1.14;  // capped so in-pattern fire spacing stays jumpable
   const SURGE_GAP_MUL    = 0.72;
 
-  // BOOST = speed + score only. You ALWAYS jump fires (no invincibility smashing).
+  // BOOST = faster truck + 2× points. You ALWAYS jump fires (no invincibility).
   const BOOST_MULT         = 1.42;
   const BOOST_TIME_PER     = 1.35;  // first pickup
   const BOOST_TOPOFF_MUL   = 0.35;  // topping off while already boosted
@@ -392,16 +449,18 @@
   const MUTE_KEY      = 'capyrizzlerush_mute_v1';
   // First-time accomplishment definitions. Each fires at most once
   // across runs (persisted via localStorage as a bitmap).
+  const runMeters = (s) => Math.floor(s.distance / 10);
   const ACHIEVEMENTS = [
-    { id: 'firstKm',       label: 'FIRST KILOMETER',  test: (s) => s.distance >= 1000 },
+    { id: 'firstKm',       label: 'FIRST KILOMETER',  test: (s) => runMeters(s) >= 1000 },
     { id: 'firstX10',      label: 'COMBO x10',        test: (s) => s.combo    >= 10 },
     { id: 'firstX20',      label: 'COMBO x20 MAX!',   test: (s) => s.combo    >= 20 },
     { id: 'firstSaved',    label: 'FIRST SAVE!',      test: (s) => s.everSaved },
-    { id: 'firstBoost',    label: 'FIRST BOOST!',    test: (s) => s.boostUsed >= 1 },
-    { id: 'first5km',      label: '5 KILOMETERS',     test: (s) => s.distance >= 5000 },
+    { id: 'firstBoost',    label: 'FIRST BOOST!',    test: (s) => s.watersGrabbed >= 1 },
+    { id: 'first5km',      label: '5 KILOMETERS',     test: (s) => runMeters(s) >= 5000 },
     { id: 'firstRankC',    label: 'RANK C OR BETTER', test: (s) => s.score >= 5000 },
     { id: 'firstRankB',    label: 'RANK B HERO',      test: (s) => s.score >= 15000 },
-    { id: 'firstRankA',    label: 'RANK A LEGEND',    test: (s) => s.score >= 30000 },
+    { id: 'firstRankA',    label: 'RANK A LEGEND',    test: (s) => s.score >= 40000 },
+    { id: 'firstRankS',    label: 'RANK S CAPY GOD',  test: (s) => s.score >= 100000 },
   ];
 
   // ─── UTILITIES ────────────────────────────────────────────────────────
@@ -2398,7 +2457,7 @@
     }
     masterBus.gain.setTargetAtTime(1, c.currentTime, 0.04);
     sfxBus.gain.setTargetAtTime(0.9, c.currentTime, 0.04);
-    const musicVol = mode === 'playing' ? 0.2 : 0.12;
+    const musicVol = mode === 'playing' ? MUSIC_VOL_PLAY : MUSIC_VOL_TITLE;
     musicBus.gain.setTargetAtTime(musicVol, c.currentTime, 0.08);
   }
 
@@ -2446,6 +2505,8 @@
 
   const MUSIC_BPM = 116;
   const MUSIC_STEP = 60 / MUSIC_BPM / 2;
+  const MUSIC_VOL_TITLE = 0.32;   // audible on title so players notice the soundtrack
+  const MUSIC_VOL_PLAY  = 0.38;
   const MUSIC_BASS = [82.4, 82.4, 73.4, 82.4, 65.4, 65.4, 73.4, 82.4];
   const MUSIC_MELODY = [329.6, 392, 440, 392, 329.6, 293.7, 329.6, 392, 440, 523.3, 440, 392];
 
@@ -2473,14 +2534,14 @@
     while (musicNextAt < c.currentTime + lookAhead) {
       const step = musicStep % 32;
       if (step % 4 === 0) {
-        playMusicNote(MUSIC_BASS[(step / 4) % MUSIC_BASS.length], musicNextAt, MUSIC_STEP * 3.2, 'triangle', 0.05);
+        playMusicNote(MUSIC_BASS[(step / 4) % MUSIC_BASS.length], musicNextAt, MUSIC_STEP * 3.2, 'triangle', 0.08);
       }
       if (step % 2 === 0) {
-        playMusicNote(MUSIC_MELODY[step % MUSIC_MELODY.length], musicNextAt, MUSIC_STEP * 1.4, 'square', 0.014);
+        playMusicNote(MUSIC_MELODY[step % MUSIC_MELODY.length], musicNextAt, MUSIC_STEP * 1.4, 'square', 0.024);
       }
       if (step % 16 === 0) {
-        playMusicNote(164.8, musicNextAt, MUSIC_STEP * 6, 'sine', 0.01);
-        playMusicNote(196, musicNextAt + 0.01, MUSIC_STEP * 6, 'sine', 0.008);
+        playMusicNote(164.8, musicNextAt, MUSIC_STEP * 6, 'sine', 0.016);
+        playMusicNote(196, musicNextAt + 0.01, MUSIC_STEP * 6, 'sine', 0.013);
       }
       musicStep++;
       musicNextAt += MUSIC_STEP;
@@ -2506,6 +2567,7 @@
   function syncMuteButton() {
     if (!elMuteBtn) return;
     elMuteBtn.setAttribute('aria-pressed', musicMuted ? 'true' : 'false');
+    elMuteBtn.setAttribute('aria-label', musicMuted ? 'Unmute sound' : 'Mute sound');
     elMuteBtn.textContent = musicMuted ? '🔇' : '🔊';
     elMuteBtn.title = musicMuted ? 'Unmute sound' : 'Mute sound';
     elMuteBtn.classList.toggle('muted', musicMuted);
@@ -2530,12 +2592,6 @@
       blip(f * 1.5, 0.04, 'triangle', 0.03, f * 1.2);
     },
     boost()  { blip(220, 0.30, 'sawtooth', 0.07, 880); blip(660, 0.18, 'square', 0.05, 1320); noise(0.20, 0.04); },
-    smash(combo = 1) {
-      const c = Math.min(20, combo);
-      blip(110 + c * 12, 0.18, 'sawtooth', 0.08, 60 + c * 4);
-      noise(0.12, 0.08);
-      blip(860 + c * 28, 0.06, 'square', 0.04, 220);
-    },
     crash()  { blip( 80, 0.50, 'sawtooth', 0.10,  40); noise(0.35, 0.12); },
   };
 
@@ -2548,6 +2604,7 @@
   const state = {
     runTime: 0,
     distance: 0,
+    scoreDist: 0,           // distance credit toward score (2× while boosting)
     score: 0,
     best: parseInt(localStorage.getItem(HIGHSCORE_KEY) || '0', 10) || 0,
     speed: BASE_SPEED,
@@ -2557,7 +2614,7 @@
     boostUsed: 0,           // total boost time used this run
 
     // run stats for the game-over screen
-    firesSmashed: 0,
+    firesCleared: 0,
     watersGrabbed: 0,
     nearMisses: 0,
     shieldsGrabbed: 0,
@@ -2571,9 +2628,7 @@
     comboGrace: 0,
     comboDecayClock: 0,
 
-    // Shield (one-hit immunity). Acquired from rare gold-star pickups.
-    // Consumed by the next fire collision: pop a SAVED! popup + spark burst
-    // and smash the fire instead of dying.
+    // Armor (one-hit save). Gold-star pickup; next fire hit consumes it.
     shield: false,
     shieldFlash: 0,
     armorSlots: 1,           // armor pickups allowed this run (Chrome Dino: one extra life max)
@@ -2584,7 +2639,7 @@
     // milestone tracking
     nextMilestone: MILESTONE_M,
 
-    // Cumulative bonus pool — all scoring bonuses (smash, near-miss, pickup,
+    // Cumulative bonus pool — all scoring bonuses (near-miss, pickup,
     // milestone) accumulate here instead of being injected into `distance`.
     // Previously bonuses bumped `distance`, which inflated `score` next frame,
     // which crossed more milestones, which gave bigger distance bonuses…
@@ -2609,6 +2664,7 @@
     obstacles: [],   // {x,y,w,h,kind:'fire',phase}
     pickups: [],     // {x,y,w,h,kind:'water',phase,taken?}
     telegraphs: [],  // {text, color, x, y, life, max}
+    telegraphQuietT: 0,  // suppress lane banners after act / center pops
     achievements: [],// {label, life, max} — first-time celebrations
     achUnlocked: null, // Set of unlocked achievement ids (lazy-loaded)
     everSaved: false,  // run-local flag, used by achievement test
@@ -2643,6 +2699,11 @@
     blockSpawnUntilFirstClear: true,
     pendingFirstSpawn: true,
     obstacleSpawns: 0,
+    postTrainDouble: POST_TRAIN_DOUBLE,
+    lastAnnouncedPhase: 0,
+    patternQueue: [],
+    patternsSinceReward: 0,
+    patternsSinceWater: 0,
 
     // tutorial
     hint: {
@@ -2696,8 +2757,8 @@
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
   });
-  btnStart.addEventListener('click', () => startGame());
-  btnRetry.addEventListener('click', () => startGame());
+  if (btnStart) btnStart.addEventListener('click', () => startGame());
+  if (btnRetry) btnRetry.addEventListener('click', () => startGame());
   if (elMuteBtn) {
     elMuteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2755,13 +2816,14 @@
 
     state.runTime = 0;
     state.distance = 0;
+    state.scoreDist = 0;
     state.score = 0;
     state.speed = WARMUP_SPEED;
 
     state.boostTime = 0;
     state.boosting = false;
     state.boostUsed = 0;
-    state.firesSmashed = 0;
+    state.firesCleared = 0;
     state.watersGrabbed = 0;
     state.nearMisses = 0;
     state.shieldsGrabbed = 0;
@@ -2789,6 +2851,7 @@
     state.particles.length = 0;
     state.popups.length = 0;
     state.telegraphs.length = 0;
+    state.telegraphQuietT = 0;
     state.achievements.length = 0;
     state.everSaved = false;
     state.achUnlocked = loadAchievements();
@@ -2798,6 +2861,11 @@
     state.nextObstacleDist = 99999;
     state.pendingFirstSpawn = true;
     state.obstacleSpawns = 0;
+    state.postTrainDouble = POST_TRAIN_DOUBLE;
+    state.lastAnnouncedPhase = 0;
+    state.patternQueue = [];
+    state.patternsSinceReward = 0;
+    state.patternsSinceWater = 0;
     state.jumpAssistLeft = JUMP_ASSIST_COUNT;
     state.blockSpawnUntilFirstClear = true;
     state.patternCount     = 0;
@@ -2867,7 +2935,7 @@
   // Tuned against typical scores observed in playtest:
   //   distance-only 30s run        ≈    900
   //   solid jumping 60s run        ≈  5,000
-  //   with a couple boost smashes  ≈ 15,000
+  //   with boost pickups            ≈ 15,000
   //   long boost-chain run         ≈ 40,000+
   //   master run                   ≈100,000+
   const RANK_TIERS = [
@@ -2892,7 +2960,7 @@
       try { localStorage.setItem(HIGHSCORE_KEY, String(state.best)); } catch {}
     }
     setText(elFinal,      final.toLocaleString());
-    setText(elFinalSmash, String(state.firesSmashed));
+    setText(elFinalSmash, String(state.firesCleared));
     setText(elFinalCombo, '×' + state.bestCombo);
     setText(elFinalBest,  state.best.toLocaleString());
     if (elNewBest) elNewBest.classList.toggle('hidden', !newBest);
@@ -2956,13 +3024,14 @@
   // 'blue' flame variant which confused players (cool-colored hazard looked
   // pickup-like) — replaced with a magenta 'ember' flame.
   const FIRE_VARIANTS = {
-    // name        w    h    color1     color2     core
-    torch:     { w: 60, h: 92,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
-    tall:      { w: 54, h: 108, color1: '#ff3a2a', color2: '#ffd24a', core: '#fff7e0' },
-    ember:     { w: 56, h: 96,  color1: '#ff3a8a', color2: '#ffb14c', core: '#ffe9a8' },
-    pit:       { w: 64, h: 50,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
-    short:     { w: 62, h: 68,  color1: '#ff8a3c', color2: '#ffd24a', core: '#fff7e0' },
+    // Upright hazards must read clearly at speed — short was too squat for triples.
+    torch:  { w: 72, h: 118, color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
+    tall:   { w: 68, h: 132, color1: '#ff3a2a', color2: '#ffd24a', core: '#fff7e0' },
+    ember:  { w: 70, h: 120, color1: '#ff3a8a', color2: '#ffb14c', core: '#ffe9a8' },
+    pit:    { w: 82, h: 96,  color1: '#ff5a3c', color2: '#ffb14c', core: '#ffe9a8' },
+    short:  { w: 68, h: 100, color1: '#ff8a3c', color2: '#ffd24a', core: '#fff7e0' },
   };
+  const FIRE_VIS_SCALE = { 1: 1, 2: 1.12, 3: 1.22, 4: 1.28 };
 
   // Reference: a fire's collider takes ~ (truckHitboxW + fireHitboxW)/speed
   // seconds of overlap with the truck hitbox. With pad 10 on each side,
@@ -2976,9 +3045,9 @@
   // So we use dx ≥ 240 between separate fires in a pattern.
   const PATTERNS = [
     // ── Easy (phase 1) — tags drive wave director picks ──
-    { name: 'single',      phase: 1, weight: 5, tags: ['calm', 'pressure'],
+    { name: 'single',      phase: 1, weight: 3, tags: ['calm', 'pressure'],
       items: [{ kind: 'fire', dx: 0, variant: 'torch' }] },
-    { name: 'singleShort', phase: 1, weight: 3, tags: ['calm'],
+    { name: 'singleShort', phase: 1, weight: 2, tags: ['calm'],
       items: [{ kind: 'fire', dx: 0, variant: 'short' }] },
     { name: 'easyWater',   phase: 1, weight: 2, tags: ['reward', 'calm'],
       items: [{ kind: 'water', dx: 0, lift: 90 }] },
@@ -2986,16 +3055,31 @@
       items: [{ kind: 'water', dx: 0, lift: 45 }, { kind: 'water', dx: 280, lift: 70 }] },
 
     // ── Medium (phase 2) ──
-    { name: 'tall',       phase: 2, weight: 3, tags: ['pressure'],
+    { name: 'tall',       phase: 2, weight: 1, tags: ['pressure'],
       items: [{ kind: 'fire', dx: 0, variant: 'tall' }] },
-    { name: 'ember',      phase: 2, weight: 2, tags: ['pressure'],
+    { name: 'ember',      phase: 2, weight: 1, tags: ['pressure'],
       items: [{ kind: 'fire', dx: 0, variant: 'ember' }] },
-    { name: 'pit',        phase: 2, weight: 2, tags: ['pressure'],
+    { name: 'pit',        phase: 2, weight: 1, tags: ['pressure'],
       items: [{ kind: 'fire', dx: 0, variant: 'pit'  }] },
-    { name: 'doubleWide', phase: 2, weight: 3, tags: ['pressure'],
+    { name: 'torchPair',  phase: 2, weight: 5, tags: ['pressure'],
       items: [
-        { kind: 'fire', dx: 0,   variant: 'short' },
-        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'short' },
+        { kind: 'fire', dx: 0, variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'ember' },
+    ]},
+    { name: 'pitPair',    phase: 2, weight: 4, tags: ['pressure'],
+      items: [
+        { kind: 'fire', dx: 0, variant: 'pit' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'torch' },
+    ]},
+    { name: 'heightMix',  phase: 2, weight: 4, tags: ['pressure'],
+      items: [
+        { kind: 'fire', dx: 0, variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'tall' },
+    ]},
+    { name: 'doubleWide', phase: 2, weight: 5, tags: ['pressure'],
+      items: [
+        { kind: 'fire', dx: 0,   variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'ember' },
     ]},
     // Mid-jump water reward — water lifted to ~jump peak height
     // (truck top reaches GROUND_Y - TRUCK_H - 184 = 186; we want truck top
@@ -3003,7 +3087,7 @@
     // lift = 220 puts the water cleanly within the jump arc.)
     { name: 'jumpReward', phase: 2, weight: 2, tags: ['reward'],
       items: [
-        { kind: 'fire',  dx: 0,   variant: 'short' },
+        { kind: 'fire',  dx: 0,   variant: 'torch' },
         { kind: 'water', dx: 220, lift: 120 },
     ]},
     { name: 'pitWater',   phase: 2, weight: 2, tags: ['reward'],
@@ -3021,15 +3105,31 @@
         { kind: 'water', dx: 0,   lift: 35 },
         { kind: 'fire',  dx: 420, variant: 'torch' },
     ]},
-    { name: 'slowLane',   phase: 2, weight: 2, tags: ['calm'],
-      items: [{ kind: 'fire', dx: 0, variant: 'tall' }] },
+    { name: 'vaultLine',  phase: 2, weight: 3, tags: ['reward', 'pressure'],
+      items: [
+        { kind: 'fire',  dx: 0, variant: 'torch' },
+        { kind: 'water', dx: 200, lift: 150 },
+        { kind: 'fire',  dx: MIN_MULTI_FIRE_DX + 80, variant: 'torch' },
+    ]},
 
     // ── Hard (phase 3) ──
-    { name: 'triple',     phase: 3, weight: 2, tags: ['pressure', 'spectacle'],
+    { name: 'triplePit',  phase: 3, weight: 4, tags: ['pressure', 'spectacle'],
       items: [
-        { kind: 'fire', dx: 0,    variant: 'short' },
-        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'short' },
-        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'short' },
+        { kind: 'fire', dx: 0, variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'pit' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'ember' },
+    ]},
+    { name: 'chrono',     phase: 3, weight: 4, tags: ['pressure'],
+      items: [
+        { kind: 'fire', dx: 0, variant: 'ember' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'tall' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'torch' },
+    ]},
+    { name: 'triple',     phase: 3, weight: 4, tags: ['pressure', 'spectacle'],
+      items: [
+        { kind: 'fire', dx: 0,    variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'ember' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'tall' },
     ]},
     { name: 'pit+tall',   phase: 3, weight: 2, tags: ['pressure'],
       items: [
@@ -3044,20 +3144,20 @@
     ]},
     { name: 'staccato',   phase: 3, weight: 2, tags: ['pressure', 'spectacle'],
       items: [
-        { kind: 'fire', dx: 0,    variant: 'short' },
-        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'short' },
-        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'short' },
+        { kind: 'fire', dx: 0,    variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'ember' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'tall' },
     ]},
     { name: 'highVault',  phase: 3, weight: 2, tags: ['reward'],
       items: [
         { kind: 'water', dx: 0,   lift: 200 },
-        { kind: 'fire',  dx: 360, variant: 'short' },
+        { kind: 'fire',  dx: 360, variant: 'torch' },
     ]},
     { name: 'ironRun',    phase: 3, weight: 1, tags: ['spectacle'],
       items: [
-        { kind: 'fire', dx: 0,    variant: 'short' },
+        { kind: 'fire', dx: 0,    variant: 'torch' },
         { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'tall'  },
-        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'short' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'ember' },
         { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 3, variant: 'torch' },
     ]},
 
@@ -3069,8 +3169,15 @@
     ]},
     { name: 'commit',     phase: 3, weight: 2, tags: ['pressure', 'spectacle'],
       items: [
-        { kind: 'fire', dx: 0,   variant: 'short' },
+        { kind: 'fire', dx: 0,   variant: 'torch' },
         { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'pit'  },
+    ]},
+    { name: 'tripleVault', phase: 3, weight: 3, tags: ['reward', 'pressure'],
+      items: [
+        { kind: 'fire', dx: 0, variant: 'pit' },
+        { kind: 'water', dx: 200, lift: 150 },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'tall' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'ember' },
     ]},
     { name: 'riverRun',   phase: 2, weight: 2, tags: ['reward', 'calm'],
       items: [
@@ -3096,9 +3203,9 @@
     ]},
     { name: 'shieldDrop', phase: 2, weight: 1, tags: ['reward'],
       items: [
-        { kind: 'fire',   dx: 0,   variant: 'short' },
+        { kind: 'fire',   dx: 0,   variant: 'torch' },
         { kind: 'shield', dx: 360, lift: 130 },
-        { kind: 'fire',   dx: MIN_MULTI_FIRE_DX + 120, variant: 'short' },
+        { kind: 'fire',   dx: MIN_MULTI_FIRE_DX + 120, variant: 'ember' },
     ]},
     { name: 'shieldGift', phase: 3, weight: 1, tags: ['reward', 'calm'],
       items: [{ kind: 'shield', dx: 0, lift: 110 }] },
@@ -3121,10 +3228,23 @@
         { kind: 'fire', dx: 0,   variant: 'tall'  },
         { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'pit'   },
     ]},
-    { name: 'fireWall',   phase: 4, weight: 2, tags: ['pressure'],
+    { name: 'fireWall',   phase: 4, weight: 3, tags: ['pressure'],
       items: [
         { kind: 'fire', dx: 0,   variant: 'torch' },
         { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'ember' },
+    ]},
+    { name: 'fourAlarm',  phase: 4, weight: 3, tags: ['spectacle', 'pressure'],
+      items: [
+        { kind: 'fire', dx: 0, variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'pit' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'tall' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 3, variant: 'ember' },
+    ]},
+    { name: 'blazeChain', phase: 4, weight: 3, tags: ['pressure'],
+      items: [
+        { kind: 'fire', dx: 0, variant: 'ember' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'pit' },
     ]},
 
     // ── Phase 5 (90s+) — endgame spectacle pool ──
@@ -3137,7 +3257,7 @@
     ]},
     { name: 'megaReward', phase: 5, weight: 1, tags: ['reward'],
       items: [
-        { kind: 'fire',  dx: 0,   variant: 'short' },
+        { kind: 'fire',  dx: 0,   variant: 'torch' },
         { kind: 'water', dx: 120, lift: 160 },
         { kind: 'water', dx: 340, lift: 120 },
         { kind: 'shield', dx: 560, lift: 130 },
@@ -3145,11 +3265,11 @@
   ];
 
   function currentPhase() {
-    if (state.runTime < 22) return 1;
-    if (state.runTime < 42) return 2;
-    if (state.runTime < 65) return 3;
-    if (state.runTime < 95) return 4;
-    if (state.runTime < 130) return 5;
+    if (state.runTime < 16) return 1;
+    if (state.runTime < 36) return 2;
+    if (state.runTime < 58) return 3;
+    if (state.runTime < 88) return 4;
+    if (state.runTime < 120) return 5;
     return 6;
   }
 
@@ -3191,11 +3311,86 @@
     return 1.18 + tier * 0.06;
   }
 
+  function maxFiresForRun() {
+    const phase = currentPhase();
+    if (phase <= 1) return 1;
+    if (phase === 2) return 2;
+    if (phase === 3) return 3;
+    if (phase === 4) return 4;
+    return 4;
+  }
+
+  const PHASE_ACTS = {
+    2: { text: 'ACT II — DOUBLE JUMPS', color: '#ff8a3c' },
+    3: { text: 'ACT III — TRIPLE THREAT', color: '#ff5a3c' },
+    4: { text: 'ACT IV — INFERNO ALLEY', color: '#ff3a2a' },
+    5: { text: 'ACT V — MEGA CAPY', color: '#ffe24c' },
+    6: { text: 'FINAL HEAT', color: '#ff5a3c' },
+  };
+
+  const ACT_PATTERN_QUEUES = {
+    2: ['jumpReward', 'doubleWide', 'hydrant', 'torchPair', 'pitWater', 'heightMix', 'vaultLine', 'doubleWide'],
+    3: ['rewardRun', 'triple', 'emberWater', 'tripleVault', 'chrono', 'highVault', 'triplePit', 'jumpReward', 'staccato', 'vaultLine', 'pit+tall'],
+    4: ['sirenAlley', 'shieldDrop', 'fourAlarm', 'emberPit', 'leapHold', 'blazeChain', 'gauntlet', 'ironRun'],
+    5: ['megaReward', 'infernoRun', 'rewardRun', 'fourAlarm', 'sirenAlley', 'blazeChain'],
+    6: ['infernoRun', 'megaReward', 'ironRun', 'rewardRun', 'fourAlarm', 'staccato'],
+  };
+
+  function shufflePatternQueue(names) {
+    const a = names.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  function findPattern(name) {
+    return PATTERNS.find((p) => p.name === name) || null;
+  }
+
+  function startActWave(phase, preferReward) {
+    const def = preferReward
+      ? WAVES.reward
+      : (phase >= 5 ? WAVES.spectacle : WAVES.pressure);
+    const queued = (ACT_PATTERN_QUEUES[phase] || []).length;
+    state.wave = {
+      id: def.id,
+      tag: def.tag,
+      gapMul: def.gapMul * (preferReward ? 1.05 : 0.92),
+      patternsLeft: Math.max(queued + 1, def.patternsMin + 1),
+    };
+    if (preferReward) state.patternsSinceReward = 0;
+    if (def.tele && state.telegraphQuietT <= 0.15) showLaneTelegraph(def.tele, def.color);
+  }
+
+  function announcePhaseIfNeeded() {
+    const phase = currentPhase();
+    if (phase === state.lastAnnouncedPhase) return;
+    state.lastAnnouncedPhase = phase;
+    const act = PHASE_ACTS[phase];
+    if (act) showCenterBanner(act.text, act.color);
+    if (ACT_PATTERN_QUEUES[phase]) {
+      state.patternQueue = shufflePatternQueue(ACT_PATTERN_QUEUES[phase]);
+      startActWave(phase, phase >= 2 && phase <= 5);
+    }
+  }
+
+  function isLoneSingle(p) {
+    return countPatternFires(p) === 1 && !patternHasPickup(p);
+  }
+
   function patternGapBreathe(phase, diff) {
     if (phase === 1) return gapPxFromSeconds(GAP_SEC_EARLY[0], GAP_SEC_EARLY[1]);
     if (phase === 2) return gapPxFromSeconds(GAP_SEC_MID[0], GAP_SEC_MID[1]);
     if (diff.tier >= 4) return gapPxFromSeconds(GAP_SEC_LATE[0], GAP_SEC_LATE[1]);
-    return gapPxFromSeconds(1.55, 2.05);
+    if (phase >= 3) {
+      const t = clamp((diff.tier - 1) / 3, 0, 1);
+      const lo = lerp(GAP_SEC_MID[0], GAP_SEC_LATE[0], t);
+      const hi = lerp(GAP_SEC_MID[1], GAP_SEC_LATE[1], t);
+      return gapPxFromSeconds(lo, hi);
+    }
+    return gapPxFromSeconds(GAP_SEC_MID[0], GAP_SEC_MID[1]);
   }
 
   // Heat tier — the run never plateaus; speed, gaps, and waves keep tightening.
@@ -3250,14 +3445,20 @@
 
   function shouldSpawnPickup(kind) {
     const tier = getHeatTier();
+    const rewardWave = state.wave && state.wave.id === 'reward';
     if (kind === 'water') {
-      if (tier >= 4) return false;
-      if (tier >= 2 && state.boostTime > getBoostCap() * 0.7) return false;
-      if (tier >= 3 && Math.random() > 0.35) return false;
+      if (rewardWave) return state.boostTime < getBoostCap() * 0.92;
+      if (tier >= 5) return false;
+      if (tier >= 3 && state.boostTime > getBoostCap() * 0.82) return false;
+      if (tier >= 2 && state.boostTime > getBoostCap() * 0.9) return false;
+      if (tier >= 3 && state.patternsSinceWater >= 3) return true;
+      if (tier >= 3 && Math.random() > 0.82) return false;
     }
     if (kind === 'shield') {
       if (state.armorSlots <= 0 || state.shield) return false;
-      if (tier >= 3 && Math.random() > 0.25) return false;
+      if (rewardWave) return true;
+      if (tier >= 4 && Math.random() > 0.55) return false;
+      if (tier >= 3 && Math.random() > 0.7) return false;
     }
     return true;
   }
@@ -3297,38 +3498,59 @@
     return items[items.length - 1];
   }
 
-  // ── Wave director (Temple Run "set pieces", Subway "mission beats") ──
+  // ── Wave director — each phase favors different acts (not endless calm) ──
   function startNextWave(isFirst) {
     const phase = currentPhase();
     const lastId = state.wave && state.wave.id;
     const tier = getHeatTier();
-    if (isFirst || state.obstacleSpawns < 8 || tier <= 2) {
+
+    if (isFirst || state.obstacleSpawns <= TRAINING_SPAWNS) {
       state.wave = {
         id: 'calm',
         tag: 'calm',
-        gapMul: tier <= 0 ? 1.22 : tier <= 1 ? 1.12 : 1.05,
-        patternsLeft: rand(3, 5),
+        gapMul: 1.18,
+        patternsLeft: TRAINING_SPAWNS + (POST_TRAIN_DOUBLE ? 1 : 0),
       };
-      if (!isFirst && tier <= 2) showTelegraph('BREATHER', '#a8e6ff');
       return;
     }
-    const pool = ['calm', 'reward', 'pressure', 'spectacle'];
-    const pickId = weightedPick(pool, (id) => {
-      if (isFirst) return id === 'calm' ? 10 : id === 'reward' ? 2 : 0.15;
-      let w = 2;
-      if (id === 'spectacle') w = phase >= 3 ? 2.4 : 0.5;
-      if (id === 'calm')   w = tier >= 3 ? 0 : tier >= 2 ? 0.35 : 2;
-      if (id === 'reward') w = tier >= 4 ? 0 : tier >= 2 ? 0.4 : 1.4;
-      if (id === 'pressure') w = tier >= 2 ? 3 + tier * 0.5 : tier >= 1 ? 0.6 : 0.15;
-      if (id === 'spectacle') w += tier * 0.55;
-      if (state.boosting || state.shield) {
-        if (id === 'reward' || id === 'calm') w *= 0.05;
-        if (id === 'pressure' || id === 'spectacle') w *= 1.8;
+
+    const pool = phase >= 2
+      ? ['reward', 'pressure', 'spectacle']
+      : ['calm', 'reward', 'pressure', 'spectacle'];
+    const boostLow = state.boostTime < 2.5;
+    const needsWater = state.runTime > 18 && (state.watersGrabbed === 0 || boostLow);
+    const forceReward = needsWater && state.patternsSinceReward >= 3
+      || state.patternsSinceReward >= 5
+      || (boostLow && state.patternsSinceWater >= 4);
+    const pickId = forceReward ? 'reward' : weightedPick(pool, (id) => {
+      let w = 1;
+      if (phase === 1) {
+        if (id === 'calm') w = 4.5;
+        if (id === 'reward') w = 2.2;
+        if (id === 'pressure') w = 1;
+        if (id === 'spectacle') w = 0;
+      } else if (phase === 2) {
+        if (id === 'pressure') w = 3.2;
+        if (id === 'spectacle') w = 1.8;
+        if (id === 'reward') w = 3.4;
+      } else if (phase === 3) {
+        if (id === 'pressure') w = 2.6;
+        if (id === 'spectacle') w = 2.4;
+        if (id === 'reward') w = 3.6;
+      } else {
+        if (id === 'spectacle') w = 2.8 + tier * 0.15;
+        if (id === 'pressure') w = 2.6;
+        if (id === 'reward') w = tier >= 5 ? 1.6 : 2.8;
       }
-      if (id === lastId) w *= 0.12;
-      if (lastId === 'spectacle' && id === 'pressure') w *= 0.35;
-      if (lastId === 'pressure' && id === 'calm') w *= tier >= 2 ? 0.4 : 2.4;
-      if (lastId === 'pressure' && id === 'reward') w *= tier >= 3 ? 0.15 : 1.2;
+      if (needsWater && id === 'reward') w *= 2.8;
+      if (state.boosting && state.boostTime > 4) {
+        if (id === 'reward' || id === 'calm') w *= 0.35;
+        if (id === 'pressure' || id === 'spectacle') w *= 1.35;
+      }
+      if (id === lastId) w *= 0.14;
+      if (lastId === 'spectacle' && id === 'pressure') w *= 0.4;
+      if (lastId === 'pressure' && id === 'reward') w *= 1.65;
+      if (lastId === 'reward' && id === 'pressure') w *= 1.2;
       return w;
     });
     const def = WAVES[pickId];
@@ -3338,97 +3560,208 @@
       gapMul: def.gapMul,
       patternsLeft: rand(def.patternsMin, def.patternsMax),
     };
-    if (!isFirst && def.tele) {
-      showTelegraph(def.tele, def.color);
+    if (pickId === 'reward') state.patternsSinceReward = 0;
+    if (def.tele && state.telegraphQuietT <= 0.15) showLaneTelegraph(def.tele, def.color);
+  }
+
+  function minFiresForPhase(phase, waveId) {
+    if (phase <= 1) return 1;
+    if (phase === 2) return 2;
+    if (phase >= 3 && (waveId === 'pressure' || waveId === 'spectacle')) return 3;
+    if (phase >= 3) return 2;
+    if (phase >= 4) return 3;
+    return 2;
+  }
+
+  function applyMinFireRule(candidates, minFires, waveId) {
+    if (minFires <= 1) return candidates;
+    if (waveId === 'reward') {
+      const rewardMix = candidates.filter(
+        (p) => countPatternFires(p) >= minFires
+          || (patternHasPickup(p) && countPatternFires(p) >= 1),
+      );
+      return rewardMix.length ? rewardMix : candidates;
     }
+    const multi = candidates.filter((p) => countPatternFires(p) >= minFires);
+    return multi.length ? multi : candidates;
   }
 
   function pickPattern() {
     const phase = currentPhase();
     const tier = getHeatTier();
-    let candidates = PATTERNS.filter(p => p.phase <= phase);
-    const maxFires = tier <= 2 ? 1 : tier <= 3 ? 2 : tier <= 4 ? 3 : 99;
-    candidates = candidates.filter((p) => countPatternFires(p) <= maxFires);
-    if (phase === 1) {
-      const easy = candidates.filter((p) => p.phase === 1 && !patternIsMultiFire(p));
-      if (easy.length) candidates = easy;
-    }
-    if (inEasyRun()) {
-      const train = candidates.filter((p) => p.name === 'singleShort' || p.name === 'single');
-      if (train.length) candidates = train;
-    }
+    const maxFires = maxFiresForRun();
+    const waveId = state.wave && state.wave.id;
     const waveTag = state.wave && state.wave.tag;
-    if (waveTag) {
-      const tagged = candidates.filter(p => patternHasTag(p, waveTag));
-      if (tagged.length >= 3) candidates = tagged;
+
+    if (state.obstacleSpawns < TRAINING_SPAWNS) {
+      return findPattern('singleShort') || PATTERNS[0];
     }
-    if (tier <= 2) {
-      const calmish = candidates.filter(
-        (p) => patternHasTag(p, 'calm') || patternHasTag(p, 'reward') || !patternIsMultiFire(p),
-      );
-      if (calmish.length >= 3) candidates = calmish;
+
+    if (state.patternQueue && state.patternQueue.length) {
+      const name = state.patternQueue.shift();
+      const queued = findPattern(name);
+      if (queued && countPatternFires(queued) <= maxFires) return queued;
     }
-    // Survival economy: starve pickup-heavy patterns as heat rises.
-    if (tier >= 2) {
+
+    let candidates = PATTERNS.filter(
+      (p) => p.phase <= phase && countPatternFires(p) <= maxFires,
+    );
+
+    if (phase === 1) {
+      const act1 = candidates.filter((p) => p.phase === 1 && !patternIsMultiFire(p));
+      if (act1.length) candidates = act1;
+    } else if (phase === 2) {
+      const act2 = candidates.filter((p) => p.phase >= 2);
+      if (act2.length) candidates = act2;
+    } else if (phase >= 3) {
+      const act3 = candidates.filter((p) => p.phase >= 3);
+      if (act3.length >= 2) candidates = act3;
+    }
+
+    candidates = applyMinFireRule(candidates, minFiresForPhase(phase, waveId), waveId);
+
+    if (waveTag && phase >= 2) {
+      const tagged = candidates.filter((p) => patternHasTag(p, waveTag));
+      const taggedOk = applyMinFireRule(tagged, minFiresForPhase(phase, waveId), waveId);
+      if (taggedOk.length >= 2) candidates = taggedOk;
+    } else if (waveTag && phase === 1) {
+      const tagged = candidates.filter((p) => patternHasTag(p, waveTag));
+      if (tagged.length >= 2) candidates = tagged;
+    }
+
+    if (tier >= 4 && waveId !== 'reward') {
       const lean = candidates.filter((p) => !patternHasPickup(p) || patternFireOnly(p));
-      if (lean.length >= 6) candidates = lean;
+      const leanOk = applyMinFireRule(lean, minFiresForPhase(phase, waveId), waveId);
+      if (leanOk.length >= 3) candidates = leanOk;
     }
-    if (tier >= 3) {
-      const fires = candidates.filter(patternFireOnly);
-      if (fires.length >= 5) candidates = fires;
-    }
-    if (tier >= 4) {
+    if (tier >= 5 && waveId === 'pressure') {
       const hard = candidates.filter(
         (p) => patternHasTag(p, 'pressure') || patternHasTag(p, 'spectacle'),
       );
-      if (hard.length >= 4) candidates = hard;
+      const hardOk = applyMinFireRule(hard, Math.max(3, minFiresForPhase(phase, waveId)), waveId);
+      if (hardOk.length >= 2) candidates = hardOk;
     }
+
     const recent = state.recentPatterns;
-    return weightedPick(candidates, (p) => {
+    const picked = weightedPick(candidates, (p) => {
       let w = p.weight;
+      const fires = countPatternFires(p);
       if (recent.length && recent[recent.length - 1] === p.name) return 0;
-      if (recent.indexOf(p.name) >= 0) w *= 0.3;
-      if (tier >= 2 && patternHasPickup(p)) w *= 0.25;
-      if ((state.boosting || state.shield) && patternHasPickup(p)) w *= 0.08;
+      if (recent.indexOf(p.name) >= 0) w *= 0.18;
+      if (p.phase === phase) w *= 2.6;
+      else if (p.phase < phase) w *= 0.35;
+      if (phase >= 2 && fires === 1 && isLoneSingle(p)) return 0;
+      if (fires >= 2) w *= 3.2;
+      if (fires >= 3) w *= 4;
+      if (fires >= 4) w *= 5;
+      if (waveTag && patternHasTag(p, waveTag)) w *= 1.5;
+      if (waveId === 'reward' && patternHasPickup(p)) w *= 2.8;
+      if (patternHasPickup(p) && !patternFireOnly(p)) {
+        w *= state.boostTime < 2 ? 2.4 : (waveId === 'reward' ? 1.8 : 0.55);
+      }
+      if (state.boosting && state.boostTime > 4 && patternHasPickup(p)) w *= 0.4;
       return w;
     });
+
+    if (phase >= 2 && countPatternFires(picked) < 2) {
+      const fallback = PATTERNS.filter(
+        (p) => p.phase <= phase && countPatternFires(p) >= 2 && countPatternFires(p) <= maxFires,
+      );
+      if (fallback.length) {
+        return weightedPick(fallback, (p) => (recent[recent.length - 1] === p.name ? 0 : p.weight));
+      }
+    }
+    return picked;
   }
 
-  // Special patterns get an announce banner — gives the player a
-  // moment to brace before the bigger set-pieces hit the screen.
+  // Headline set-pieces only — keeps lane text from fighting act / training banners.
+  const PATTERN_LANE_TELE = new Set([
+    'gauntlet', 'ironRun', 'triple', 'triplePit', 'fourAlarm', 'infernoRun',
+    'staccato', 'commit', 'blazeChain',
+  ]);
   const TELEGRAPHS = {
-    gauntlet:   { text: 'GAUNTLET!',  color: '#ff5a3c' },
-    ironRun:    { text: 'IRON RUN!',  color: '#ff3a2a' },
-    triple:     { text: 'TRIPLE!',    color: '#ff8a3c' },
-    rewardRun:  { text: 'REWARD!',    color: '#ffd24a' },
-    shieldGift: { text: 'ARMOR!',     color: '#ffd24a' },
-    shieldDrop: { text: 'ARMOR!',     color: '#ffd24a' },
-    emberDance: { text: 'EMBER DANCE!', color: '#ff3a8a' },
-    waterChain: { text: 'WATER CHAIN!', color: '#4ec5ff' },
-    riverRun:   { text: 'RIVER!',     color: '#4ec5ff' },
+    gauntlet:     { text: 'GAUNTLET!',  color: '#ff5a3c' },
+    ironRun:      { text: 'IRON RUN!',  color: '#ff3a2a' },
+    triple:       { text: 'TRIPLE!',    color: '#ff8a3c' },
+    triplePit:    { text: 'TRIPLE PIT!', color: '#ff5a3c' },
+    chrono:       { text: 'CHRONO!',    color: '#ff8a3c' },
+    torchPair:    { text: 'DOUBLE!',    color: '#ff8a3c' },
+    pitPair:      { text: 'DOUBLE!',    color: '#ff8a3c' },
+    heightMix:    { text: 'HIGH LOW!',  color: '#ff8a3c' },
+    doubleWide:   { text: 'DOUBLE!',    color: '#ff8a3c' },
+    fourAlarm:    { text: 'FOUR ALARM!', color: '#ff3a2a' },
+    blazeChain:   { text: 'BLAZE CHAIN!', color: '#ff5a3c' },
+    infernoRun:   { text: 'INFERNO!',   color: '#ff3a2a' },
+    rewardRun:    { text: 'REWARD!',    color: '#ffd24a' },
+    shieldGift:   { text: 'ARMOR!',     color: '#ffd24a' },
+    shieldDrop:   { text: 'ARMOR!',     color: '#ffd24a' },
+    emberDance:   { text: 'EMBER DANCE!', color: '#ff3a8a' },
+    waterChain:   { text: 'WATER CHAIN!', color: '#4ec5ff' },
+    riverRun:     { text: 'RIVER!',     color: '#4ec5ff' },
+    vaultLine:    { text: 'VAULT RUN!', color: '#4ec5ff' },
+    commit:       { text: 'COMMIT!',    color: '#ff5a3c' },
+    staccato:     { text: 'STACCATO!',  color: '#ff8a3c' },
+    'pit+tall':   { text: 'PIT + TALL!', color: '#ff8a3c' },
+    leapHold:     { text: 'LEAP HOLD!', color: '#ff5a3c' },
   };
+
+  function maybeInjectReliefPickup(span, training, hadWater) {
+    if (training || hadWater || state.runTime < 12) return;
+    if (state.boostTime > getBoostCap() * 0.88) return;
+    const tier = getHeatTier();
+    const dryNeed = tier >= 2 ? 3 : 5;
+    if (state.patternsSinceWater < dryNeed) return;
+    if (Math.random() > 0.68) return;
+    state.patternsSinceWater = 0;
+    const w = 48, h = 52;
+    const lift = rand(100, 175);
+    state.pickups.push({
+      x: W + 80 + span * 0.5 + rand(50, 180),
+      y: GROUND_Y - h - lift,
+      w, h,
+      kind: 'water',
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
 
   function spawnPattern() {
     const isFirst = state.obstacleSpawns === 0;
     const training = state.obstacleSpawns < TRAINING_SPAWNS;
-    const p = training
-      ? (PATTERNS.find((x) => x.name === 'singleShort') || PATTERNS[0])
-      : pickPattern();
+    let p;
+    let skipSetTele = false;
+    if (training) {
+      p = PATTERNS.find((x) => x.name === 'singleShort') || PATTERNS[0];
+    } else if (state.postTrainDouble) {
+      state.postTrainDouble = false;
+      p = findPattern('doubleWide') || findPattern('torchPair') || pickPattern();
+      showCenterBanner('TWO FIRES — JUMP TWICE!', '#ff8a3c');
+      skipSetTele = true;
+    } else {
+      p = pickPattern();
+    }
     const trainLead = training ? (isFirst ? FIRST_FLAME_LEAD_PX : TRAINING_LEAD_PX) : 0;
     let span = 0;
     if (isFirst) {
-      showTelegraph('SPACEBAR TO JUMP!', '#ffe24c');
-    } else if (training) {
-      showTelegraph('JUMP!', '#ffe24c');
-    } else {
+      showCenterBanner('SPACEBAR TO JUMP!', '#ffe24c');
+    } else if (training && state.telegraphQuietT <= 0.2) {
+      showLaneTelegraph('JUMP!', '#ffe24c');
+    } else if (!skipSetTele) {
       const tele = TELEGRAPHS[p.name];
-      if (tele) showTelegraph(tele.text, tele.color);
+      if (tele && PATTERN_LANE_TELE.has(p.name) && state.telegraphQuietT <= 0.2) {
+        showLaneTelegraph(tele.text, tele.color);
+      }
     }
+    const firesInPattern = p.items.filter((it) => it.kind === 'fire');
+    const fireTotal = firesInPattern.length;
+    const visMul = FIRE_VIS_SCALE[Math.min(4, fireTotal)] || 1;
+    let fireIndex = 0;
+    let spawnedWater = false;
     for (const it of p.items) {
       const baseX = W + 80 + it.dx + trainLead;
       if (it.kind === 'fire') {
         const v = FIRE_VARIANTS[it.variant] || FIRE_VARIANTS.torch;
-        const w = v.w, h = v.h;
+        const w = Math.round(v.w * visMul);
+        const h = Math.round(v.h * visMul);
         state.obstacles.push({
           x: baseX,
           y: GROUND_Y - h,
@@ -3438,6 +3771,8 @@
           phase: Math.random() * Math.PI * 2,
           passed: false,
           tutorial: training,
+          fireIndex: fireIndex++,
+          fireTotal,
         });
         if (it.dx + w > span) span = it.dx + w;
       } else if (it.kind === 'water') {
@@ -3449,6 +3784,7 @@
           kind: 'water',
           phase: Math.random() * Math.PI * 2,
         });
+        spawnedWater = true;
         if (it.dx + w > span) span = it.dx + w;
       } else if (it.kind === 'shield') {
         if (!shouldSpawnPickup('shield')) continue;
@@ -3461,6 +3797,12 @@
         });
         if (it.dx + w > span) span = it.dx + w;
       }
+    }
+    if (spawnedWater) state.patternsSinceWater = 0;
+    else state.patternsSinceWater += 1;
+    if (!training) {
+      state.patternsSinceReward += 1;
+      maybeInjectReliefPickup(span, training, spawnedWater);
     }
     // Track recent names so pickPattern never loops the same set-piece.
     state.recentPatterns.push(p.name);
@@ -3647,12 +3989,13 @@
     state.comboDecayClock = 0;
   }
 
-  // Centralized bonus accumulator. All score bonuses (smash, near-miss,
-  // pickup, milestone) MUST go through this — never write directly to
+  // Centralized bonus accumulator. All score bonuses (near-miss, pickup,
+  // milestone) MUST go through this — never write directly to
   // state.distance, which would inflate next-frame score and risk a
   // milestone-feedback freeze.
   function awardBonus(pts) {
     if (pts <= 0) return;
+    if (state.boosting) pts *= BOOST_SCORE_MULT;
     state.bonusScore += pts;
   }
   function bumpComboPill() {
@@ -3718,14 +4061,24 @@
     state.flashWhite = Math.max(state.flashWhite, 0.12);
   }
 
-  // Floating in-canvas banner that streaks in from the right edge along
-  // the obstacle lane. Sells "something special is incoming."
-  function showTelegraph(text, color) {
+  function showCenterBanner(text, color) {
+    showMilestone(text);
+    state.telegraphQuietT = 2.0;
+    state.telegraphs.length = 0;
+  }
+
+  function showLaneTelegraph(text, color) {
+    state.telegraphs.length = 0;
     state.telegraphs.push({
       text, color,
-      x: W + 40, y: GROUND_Y - 168,
-      life: 1.6, max: 1.6,
+      x: W + 40, y: GROUND_Y - 248,
+      life: 1.35, max: 1.35,
     });
+    state.telegraphQuietT = Math.max(state.telegraphQuietT, 0.85);
+  }
+
+  function showTelegraph(text, color) {
+    showLaneTelegraph(text, color);
   }
   // Debug hooks for visual verification (only when ?debug=1).
   if (/[?&]debug=1\b/.test(location.search)) {
@@ -3797,6 +4150,7 @@
 
     updateRunSpeed();
     state.heatTier = getHeatTier();
+    announcePhaseIfNeeded();
     const diff = getDifficultyProfile();
 
     if (state.heatTier >= SURGE_AFTER_TIER) {
@@ -3805,7 +4159,7 @@
       } else if (state.runTime >= state.nextSurgeAt) {
         state.surgeT = SURGE_DURATION;
         state.nextSurgeAt = state.runTime + SURGE_INTERVAL;
-        showTelegraph('RUSH!', '#ff5a3c');
+        showLaneTelegraph('RUSH!', '#ff5a3c');
         shake(6, 0.14);
         blip(180, 0.12, 'sawtooth', 0.06, 360);
       }
@@ -3827,18 +4181,16 @@
     }
     const surgeMul = state.surgeT > 0 ? SURGE_SPEED_MUL : 1;
     const worldSpeed = (state.boosting ? state.speed * BOOST_MULT : state.speed) * surgeMul;
-    const scoreMul   = state.boosting ? BOOST_SCORE_MULT : 1;
-
     const streakScoreMul = state.streakMulT > 0 ? state.streakMul : 1;
     if (state.streakMulT > 0) {
       state.streakMulT = Math.max(0, state.streakMulT - dt);
       if (state.streakMulT <= 0) state.streakMul = 1;
     }
-    state.distance += worldSpeed * dt * scoreMul * streakScoreMul;
-    // score = real distance (m) + cumulative bonuses (smash, near-miss,
-    // pickup, milestone). Keeping bonuses out of `distance` prevents the
-    // milestone-feedback freeze.
-    state.score = Math.floor(state.distance / 10) + state.bonusScore;
+    const distStep = worldSpeed * dt * streakScoreMul;
+    state.distance += distStep;
+    state.scoreDist += distStep * (state.boosting ? BOOST_SCORE_MULT : 1);
+    // score = boosted distance credit + bonuses (milestones double while boosting).
+    state.score = Math.floor(state.scoreDist / 10) + state.bonusScore;
 
     // ── Truck physics ────────────────────────────────────────────────
     const t = state.truck;
@@ -3930,6 +4282,7 @@
       if (hit && o.tutorial && !t.onGround) {
         if (!o.passed) {
           o.passed = true;
+          state.firesCleared += 1;
           addCombo(1);
           state.cleanStreak += 1;
           popup('NICE!', o.x + o.w * 0.5, o.y - 20, '#ffe24c', { life: 0.7 });
@@ -3943,8 +4296,8 @@
           state.shield = false;
           state.shieldFlash = 0.6;
           state.everSaved = true;
-          state.firesSmashed += 1;
-          // Keep the combo intact + small bonus.
+          state.firesCleared += 1;
+          state.cleanStreak += 1;
           const pts = 15 * state.combo;
           awardBonus(pts);
           const ax = o.x + o.w / 2;
@@ -3970,6 +4323,7 @@
         if (o.tutorial) state.blockSpawnUntilFirstClear = false;
         const clearance = o.y - (state.truck.y + TRUCK_H); // px above obstacle top
         if (clearance >= 0) {
+          state.firesCleared += 1;
           addCombo(1);
           state.cleanStreak += 1;
           if (state.cleanStreak > 0 && state.cleanStreak % STREAK_EVERY === 0) {
@@ -4127,26 +4481,27 @@
     // Shield hint lingers a bit longer (~5s) so the player has time to read it.
     if (state.hint.shieldA > 0) state.hint.shieldA = Math.max(0, state.hint.shieldA - dt * 0.65);
     if (state.streakFlash > 0) state.streakFlash = Math.max(0, state.streakFlash - dt * 1.2);
+    if (state.telegraphQuietT > 0) state.telegraphQuietT = Math.max(0, state.telegraphQuietT - dt);
 
     // ── Distance milestones ──────────────────────────────────────────
-    // Milestones track METERS traveled, NOT score. This decouples them from
-    // the bonus-score feedback loop entirely — milestones fire on a clean,
-    // predictable distance cadence (every MILESTONE_M meters of actual
-    // forward travel). Always fires at most once per frame.
+    // Milestones track meters traveled (physical distance), not score.
     const distMeters = Math.floor(state.distance / 10);
-    if (distMeters >= state.nextMilestone) {
+    while (distMeters >= state.nextMilestone) {
       const m = state.nextMilestone;
       addCombo(1);
       const pts = Math.floor(25 * state.combo * (state.streakMulT > 0 ? state.streakMul : 1));
       awardBonus(pts);
-      const steps = Math.max(1, Math.floor((distMeters - m) / MILESTONE_M) + 1);
-      state.nextMilestone = m + steps * MILESTONE_M;
+      state.nextMilestone += MILESTONE_M;
       const special = SPECIAL_MILESTONES[m];
       const mtxt = special ? special + '  +' + pts : m.toLocaleString() + 'm — +' + pts;
-      showMilestone(mtxt);
-      popup(mtxt, W * 0.5, GROUND_Y - 120, '#4ec5ff', { big: true, vy: -40 });
-      spawnRing(W * 0.5, GROUND_Y - 100, '#4ec5ff');
-      spawnCapySpark(W * 0.5, GROUND_Y - 110, 6, '#a8e6ff');
+      const teleBusy = state.telegraphQuietT > 0.35;
+      if (!teleBusy) showMilestone(mtxt);
+      else if (elMilestone) elMilestone.classList.add('hidden');
+      if (!teleBusy) {
+        popup(mtxt, W * 0.5, GROUND_Y - 120, '#4ec5ff', { big: true, vy: -40 });
+        spawnRing(W * 0.5, GROUND_Y - 100, '#4ec5ff');
+        spawnCapySpark(W * 0.5, GROUND_Y - 110, 6, '#a8e6ff');
+      }
       state.flashWhite = Math.max(state.flashWhite, 0.08);
       shake(5, 0.2);
       juicePunch(0.07);
@@ -4154,33 +4509,13 @@
     }
 
     // ── HUD ── (defensive — missing elements must never freeze the loop)
+    syncPowerHud();
     setText(elScore, state.score.toLocaleString());
     setText(elBest,  'BEST ' + Math.max(state.best, state.score).toLocaleString());
     setText(elCombo, '×' + state.combo);
     if (elCombo) {
       elCombo.classList.toggle('hot',   state.combo >= 8  && state.combo < 16);
       elCombo.classList.toggle('blaze', state.combo >= 16);
-    }
-    const boostCap = getBoostCap();
-    setStyleWidth(elBoost, clamp((state.boostTime / boostCap) * 100, 0, 100).toFixed(1) + '%');
-    setText(elBoostLabel, state.boosting ? 'BOOST!' : 'BOOST');
-    if (elBoostTimer) {
-      if (state.boostTime > 0.05) {
-        elBoostTimer.classList.remove('hidden');
-        setText(elBoostTimer, state.boostTime.toFixed(1) + 's');
-      } else {
-        elBoostTimer.classList.add('hidden');
-      }
-    }
-    if (elArmorRow) {
-      const showArmor = state.shield || state.armorSlots > 0;
-      elArmorRow.classList.toggle('hidden', !showArmor);
-      elArmorRow.classList.toggle('active-armor', !!state.shield);
-      if (elArmorStatus) {
-        setText(elArmorStatus, state.shield
-          ? 'Blocks next hit'
-          : 'Pickup · one per run');
-      }
     }
     syncThemeHud();
     syncPlayHints();
@@ -4740,6 +5075,8 @@
   function drawObstacles() {
     for (const o of state.obstacles) {
       Sprite.draw('fire', o.x, o.y, o.w, o.h, {
+        fireIndex: o.fireIndex,
+        fireTotal: o.fireTotal,
         phase: o.phase,
         variant: o.variant,
         armored: fireIsArmored(o.variant),
@@ -5164,6 +5501,17 @@
       ctx.fillStyle = '#8ec5ff';
       ctx.fillText('JUMP', x + w / 2, y + 16);
     }
+    if (opts && opts.fireTotal >= 2 && opts.fireIndex != null) {
+      const labels = ['①', '②', '③', '④'];
+      const label = labels[opts.fireIndex] || String(opts.fireIndex + 1);
+      ctx.font = 'bold 18px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#1a0f3a';
+      ctx.fillStyle = '#ffe24c';
+      ctx.strokeText(label, x + w / 2, y - 10);
+      ctx.fillText(label, x + w / 2, y - 10);
+    }
     ctx.restore();
   }
 
@@ -5184,7 +5532,7 @@
     for (let i = 0; i < count; i++) {
       const cx = x + 16 + i * ((w - 32) / Math.max(1, count - 1));
       const wob = Math.sin(phase + i) * 3;
-      const flameH = 32 + Math.sin(phase * 1.4 + i) * 4;
+      const flameH = 44 + Math.sin(phase * 1.4 + i) * 6;
       // outer
       ctx.fillStyle = v.color1;
       ctx.beginPath();
@@ -5230,6 +5578,17 @@
       rrect(x + 4, y + 4, w - 8, h - 8, 6);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    if (opts && opts.fireTotal >= 2 && opts.fireIndex != null) {
+      const labels = ['①', '②', '③', '④'];
+      const label = labels[opts.fireIndex] || String(opts.fireIndex + 1);
+      ctx.font = 'bold 18px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#1a0f3a';
+      ctx.fillStyle = '#ffe24c';
+      ctx.strokeText(label, x + w / 2, y - 10);
+      ctx.fillText(label, x + w / 2, y - 10);
     }
     ctx.restore();
   }
