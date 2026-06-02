@@ -23,7 +23,9 @@
  */
 
 (() => {
-  const BUILD = 'v27.5.3-tap-copy';
+  const BUILD = 'v27.6-mobile-perf';
+  const MOBILE_MAX_PARTICLES = 56;
+  const DESKTOP_MAX_PARTICLES = 160;
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -198,20 +200,42 @@
       || window.innerHeight >= window.innerWidth;
   }
 
+  /** True phones / narrow portrait — not desktop browsers or wide touch laptops. */
+  function isMobilePlay() {
+    const coarse = window.matchMedia('(pointer: coarse)').matches
+      || window.matchMedia('(hover: none)').matches
+      || 'ontouchstart' in window;
+    if (!coarse) return false;
+    if (window.matchMedia('(pointer: fine)').matches && window.innerWidth >= 1024) return false;
+    return window.innerWidth < 768
+      || (window.innerWidth < 900 && window.innerHeight >= window.innerWidth);
+  }
+
   function syncUiMode() {
     const frame = document.getElementById('frame');
     const short = frame ? frame.clientHeight < 420 : window.innerHeight < 480;
     document.documentElement.classList.toggle('touch-ui', isTouchUi());
     document.documentElement.classList.toggle('short-frame', short);
     document.documentElement.classList.toggle('portrait-mobile', isPortraitMobile());
+    document.documentElement.classList.toggle('mobile-play', isMobilePlay());
     document.documentElement.dataset.mode = mode;
   }
 
   /** Fewer / wider skyline props on narrow portrait — seeded once per run. */
   function isCompactWorld() {
+    if (isMobilePlay()) return true;
     const w = typeof window !== 'undefined' ? window.innerWidth : W;
     const h = typeof window !== 'undefined' ? window.innerHeight : H;
     return w < 520 || (w < 900 && h > w);
+  }
+
+  function particleBurst(n) {
+    return isMobilePlay() ? Math.max(1, Math.round(n * 0.42)) : n;
+  }
+
+  function trimParticles() {
+    const max = isMobilePlay() ? MOBILE_MAX_PARTICLES : DESKTOP_MAX_PARTICLES;
+    if (state.particles.length > max) state.particles.length = max;
   }
 
   function syncPlayHints() {
@@ -616,10 +640,13 @@
     const neonPair = season.neon || COSTUME_SEASONS.capyjam.neon;
     const billAccents = [season.accent, neonPair[0], neonPair[1], '#ffd24a', '#ff8a3c', '#8c6bff'];
     const layoutOx = { summer: 0, winter: 95, spring: 190, autumn: 285, festival: 380, capyjam: 475 }[season.id] || 0;
+    const mp = isMobilePlay();
+    const cp = !mp && isCompactWorld();
 
     // ── Smoke columns rising from the burning city ──────────────────
-    const SMOKE_SPACING = 240;
-    for (let i = 0; i < 14; i++) {
+    const SMOKE_SPACING = mp ? 320 : 240;
+    const smokeN = mp ? 5 : cp ? 8 : 14;
+    for (let i = 0; i < smokeN; i++) {
       Cosmetics.add({
         layer: 'skylineBg',
         x: layoutOx * 0.4 + i * SMOKE_SPACING + rand(-80, 80),
@@ -634,8 +661,9 @@
 
     // ── Murals on mid-rise walls (skyline bg) ───────────────────────
     const MURAL_TAGS = ['WET  IS  BEST', 'CAPY  PRIDE', 'SOAK  DAILY', 'HAY  O  CLOCK', 'RIVAL  BEAVER?  NO'];
-    const MURAL_SPACING = 420;
-    for (let i = 0; i < 7; i++) {
+    const MURAL_SPACING = mp ? 560 : 420;
+    const muralN = mp ? 3 : cp ? 5 : 7;
+    for (let i = 0; i < muralN; i++) {
       Cosmetics.add({
         layer: 'skylineBg',
         x: layoutOx + 300 + i * MURAL_SPACING,
@@ -648,7 +676,8 @@
     }
 
     // ── Colossal capy statues on the horizon ────────────────────────
-    for (let i = 0; i < 3; i++) {
+    const statueN = mp ? 1 : 3;
+    for (let i = 0; i < statueN; i++) {
       Cosmetics.add({
         layer: 'farBg',
         x: 500 + i * 1100,
@@ -670,7 +699,8 @@
       { y: 145, vx: -13, color: balloons[2] },
       { y:  48, vx: -15, color: balloons[3] },
     ];
-    BALLOONS.forEach((b, i) => {
+    const balloonList = mp ? BALLOONS.slice(0, 4) : BALLOONS;
+    balloonList.forEach((b, i) => {
       Cosmetics.add({
         layer: 'sky',
         x: W + 200 + i * 320, y: b.y,
@@ -693,7 +723,8 @@
         draw: drawGliderCapy,
       });
     });
-    for (let i = 0; i < 6; i++) {
+    const cloudN = mp ? 3 : cp ? 4 : 6;
+    for (let i = 0; i < cloudN; i++) {
       Cosmetics.add({
         layer: 'sky',
         x: rand(0, W), y: rand(28, 150),
@@ -703,7 +734,8 @@
         draw: drawCloudCapy,
       });
     }
-    for (let i = 0; i < 2; i++) {
+    const blimpN = mp ? 1 : 2;
+    for (let i = 0; i < blimpN; i++) {
       Cosmetics.add({
         layer: 'sky',
         x: W + 600 + i * 900, y: 44 + i * 18, vx: -9 - i * 2, parallax: 0,
@@ -711,15 +743,18 @@
         draw: drawCapyBlimp,
       });
     }
-    for (let i = 0; i < 2; i++) {
-      Cosmetics.add({
-        layer: 'sky',
-        x: W + 1400 + i * 700, y: 95 + i * 25, vx: -26 - i * 4, parallax: 0,
-        respawnX: W + rand(2000, 3400),
-        draw: drawUfoCapy,
-      });
+    if (!mp) {
+      for (let i = 0; i < 2; i++) {
+        Cosmetics.add({
+          layer: 'sky',
+          x: W + 1400 + i * 700, y: 95 + i * 25, vx: -26 - i * 4, parallax: 0,
+          respawnX: W + rand(2000, 3400),
+          draw: drawUfoCapy,
+        });
+      }
     }
-    for (let i = 0; i < 2; i++) {
+    const cableN = mp ? 1 : 2;
+    for (let i = 0; i < cableN; i++) {
       Cosmetics.add({
         layer: 'sky',
         x: W + 400 + i * 500, y: 88, vx: -8, parallax: 0,
@@ -727,7 +762,8 @@
         draw: drawCableCarCapy,
       });
     }
-    for (let i = 0; i < 12; i++) {
+    const confettiN = mp ? 3 : cp ? 6 : 12;
+    for (let i = 0; i < confettiN; i++) {
       Cosmetics.add({
         layer: 'sky',
         x: rand(0, W), y: rand(-20, 80),
@@ -747,9 +783,9 @@
       'HOT  TUB  WKLY', 'BLORBO  4  PRES', 'CAPY  CASINO', 'I  ♥  HAY',
       'NAP  APPROVED', 'CHONK  ENERGY', 'WET  DOG  VIBES', 'MELON  KING',
     ];
-    const compactWorld = isCompactWorld();
-    const BILL_SPACING = compactWorld ? 640 : 480;
-    const billCount = compactWorld ? 8 : 12;
+    const compactWorld = cp || mp;
+    const BILL_SPACING = mp ? 760 : compactWorld ? 640 : 480;
+    const billCount = mp ? 5 : compactWorld ? 8 : 12;
     for (let i = 0; i < billCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -763,8 +799,8 @@
       });
     }
 
-    const WIN_SPACING = compactWorld ? 130 : 100;
-    const winCount = compactWorld ? 22 : 36;
+    const WIN_SPACING = mp ? 160 : compactWorld ? 130 : 100;
+    const winCount = mp ? 10 : compactWorld ? 22 : 36;
     for (let i = 0; i < winCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -785,7 +821,8 @@
       'GO  RIZZLE', 'PUT  IT  OUT', 'HERO', 'WE  ♥  CAPY', 'SAVE  US',
       'MORE  WATER', 'SPLASH', 'CAPY  FD', 'HONK  HONK', 'SOAK  CITY',
     ];
-    for (let i = 0; i < 10; i++) {
+    const roofN = mp ? 5 : cp ? 7 : 10;
+    for (let i = 0; i < roofN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 320 + i * ROOF_SPACING,
@@ -798,8 +835,9 @@
       });
     }
 
-    const ESC_SPACING = 280;
-    for (let i = 0; i < 8; i++) {
+    const ESC_SPACING = mp ? 360 : 280;
+    const escN = mp ? 4 : cp ? 6 : 8;
+    for (let i = 0; i < escN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 500 + i * ESC_SPACING,
@@ -811,7 +849,8 @@
       });
     }
 
-    for (let i = 0; i < 4; i++) {
+    const tubN = mp ? 2 : 4;
+    for (let i = 0; i < tubN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 650 + i * 580,
@@ -821,8 +860,9 @@
       });
     }
 
-    const PARADE_SPACING = 720;
-    for (let i = 0; i < 4; i++) {
+    const PARADE_SPACING = mp ? 900 : 720;
+    const paradeN = mp ? 2 : 4;
+    for (let i = 0; i < paradeN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 400 + i * PARADE_SPACING,
@@ -835,8 +875,9 @@
       });
     }
 
-    const SIDE_SPACING = 200;
-    for (let i = 0; i < 16; i++) {
+    const SIDE_SPACING = mp ? 280 : 200;
+    const sideN = mp ? 8 : cp ? 12 : 16;
+    for (let i = 0; i < sideN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: layoutOx * 0.6 + 450 + i * SIDE_SPACING,
@@ -847,8 +888,9 @@
         draw: drawSidewalkCapy,
       });
     }
-    const MELON_SPACING = 480;
-    for (let i = 0; i < 5; i++) {
+    const MELON_SPACING = mp ? 620 : 480;
+    const melonN = mp ? 2 : cp ? 3 : 5;
+    for (let i = 0; i < melonN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 900 + i * MELON_SPACING,
@@ -858,7 +900,8 @@
         draw: drawMelonCartCapy,
       });
     }
-    for (let i = 0; i < 3; i++) {
+    const koolN = mp ? 1 : 3;
+    for (let i = 0; i < koolN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 1200 + i * 900,
@@ -867,7 +910,8 @@
         draw: drawKoolAidCapy,
       });
     }
-    for (let i = 0; i < 4; i++) {
+    const papN = mp ? 2 : 4;
+    for (let i = 0; i < papN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 700 + i * 650,
@@ -878,7 +922,8 @@
       });
     }
 
-    for (let i = 0; i < 22; i++) {
+    const emberN = mp ? 8 : cp ? 14 : 22;
+    for (let i = 0; i < emberN; i++) {
       Cosmetics.add({
         layer: 'farBg',
         x: rand(0, W), y: rand(GROUND_Y - 220, GROUND_Y),
@@ -892,8 +937,8 @@
       });
     }
 
-    const RIZZLE_SPACING = compactWorld ? 1400 : 1100;
-    const rizzleCount = compactWorld ? 3 : 5;
+    const RIZZLE_SPACING = mp ? 1600 : compactWorld ? 1400 : 1100;
+    const rizzleCount = mp ? 2 : compactWorld ? 3 : 5;
     for (let i = 0; i < rizzleCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -906,9 +951,9 @@
 
     // ── Pass 2: neon rooftops, balcony parties, searchlights ─────────
     const narrowWorld = compactWorld;
-    const NEON_SPACING = narrowWorld ? 560 : 400;
+    const NEON_SPACING = mp ? 640 : narrowWorld ? 560 : 400;
     const NEON_MSGS = ['CAPY SPA', 'SOAK BAR', 'RIZZLE FM', 'CHONK HQ', 'WET DOG'];
-    const neonCount = narrowWorld ? 5 : 8;
+    const neonCount = mp ? 3 : narrowWorld ? 5 : 8;
     for (let i = 0; i < neonCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -921,8 +966,9 @@
         draw: drawNeonRooftopSign,
       });
     }
-    const BALCONY_SPACING = 240;
-    for (let i = 0; i < 12; i++) {
+    const BALCONY_SPACING = mp ? 320 : 240;
+    const balconyN = mp ? 4 : cp ? 8 : 12;
+    for (let i = 0; i < balconyN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 180 + i * BALCONY_SPACING,
@@ -932,21 +978,24 @@
         draw: drawBalconyParty,
       });
     }
-    for (let i = 0; i < 4; i++) {
-      Cosmetics.add({
-        layer: 'skylineBg',
-        x: 400 + i * 700,
-        y: GROUND_Y - 160 - i * 20,
-        parallax: 0.25,
-        wrap: 2800,
-        spinOff: rand(0, Math.PI * 2),
-        draw: drawSearchlightSweep,
-      });
+    if (!mp) {
+      for (let i = 0; i < 4; i++) {
+        Cosmetics.add({
+          layer: 'skylineBg',
+          x: 400 + i * 700,
+          y: GROUND_Y - 160 - i * 20,
+          parallax: 0.25,
+          wrap: 2800,
+          spinOff: rand(0, Math.PI * 2),
+          draw: drawSearchlightSweep,
+        });
+      }
     }
 
     // ── Pass 3: street-level capy life (hydrants, manholes, puddles) ─
-    const HYDRANT_SPACING = 340;
-    for (let i = 0; i < 7; i++) {
+    const HYDRANT_SPACING = mp ? 440 : 340;
+    const hydrantN = mp ? 4 : cp ? 5 : 7;
+    for (let i = 0; i < hydrantN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 300 + i * HYDRANT_SPACING,
@@ -956,8 +1005,9 @@
         draw: drawHydrantCapy,
       });
     }
-    const HOLE_SPACING = 420;
-    for (let i = 0; i < 6; i++) {
+    const HOLE_SPACING = mp ? 520 : 420;
+    const holeN = mp ? 3 : 6;
+    for (let i = 0; i < holeN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 550 + i * HOLE_SPACING,
@@ -967,7 +1017,8 @@
         draw: drawManholeCapy,
       });
     }
-    for (let i = 0; i < 8; i++) {
+    const puddleN = mp ? 4 : 8;
+    for (let i = 0; i < puddleN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 200 + i * 280,
@@ -977,7 +1028,8 @@
         draw: drawPuddleReflection,
       });
     }
-    for (let i = 0; i < 6; i++) {
+    const chalkN = mp ? 3 : 6;
+    for (let i = 0; i < chalkN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
         x: 480 + i * 360,
@@ -989,34 +1041,37 @@
     }
 
     // ── Pass 4: sky spectacle (shooting capys, orbiters) ──────────────
-    for (let i = 0; i < 3; i++) {
-      Cosmetics.add({
-        layer: 'sky',
-        x: W + rand(200, 600),
-        y: rand(40, 120),
-        vx: -180 - i * 40,
-        vy: rand(20, 50),
-        parallax: 0,
-        shootStar: true,
-        draw: drawShootingCapyStar,
-      });
-    }
-    for (let i = 0; i < 5; i++) {
-      Cosmetics.add({
-        layer: 'sky',
-        x: rand(100, W - 100),
-        y: rand(60, 140),
-        vx: 0,
-        parallax: 0,
-        orbitR: rand(18, 36),
-        hatType: ['party', 'melon', 'fd'][i % 3],
-        draw: drawOrbitMiniCapy,
-      });
+    if (!mp) {
+      for (let i = 0; i < 3; i++) {
+        Cosmetics.add({
+          layer: 'sky',
+          x: W + rand(200, 600),
+          y: rand(40, 120),
+          vx: -180 - i * 40,
+          vy: rand(20, 50),
+          parallax: 0,
+          shootStar: true,
+          draw: drawShootingCapyStar,
+        });
+      }
+      for (let i = 0; i < 5; i++) {
+        Cosmetics.add({
+          layer: 'sky',
+          x: rand(100, W - 100),
+          y: rand(60, 140),
+          vx: 0,
+          parallax: 0,
+          orbitR: rand(18, 36),
+          hatType: ['party', 'melon', 'fd'][i % 3],
+          draw: drawOrbitMiniCapy,
+        });
+      }
     }
 
     // ── Pass 5: mega capy skyscrapers (wide cosmetic landmarks) ───────
-    const MEGA_SPACING = 2000;
-    for (let i = 0; i < 4; i++) {
+    const MEGA_SPACING = mp ? 2600 : 2000;
+    const megaN = mp ? 1 : cp ? 2 : 4;
+    for (let i = 0; i < megaN; i++) {
       Cosmetics.add({
         layer: 'skylineBg',
         x: 400 + i * MEGA_SPACING,
@@ -1301,7 +1356,7 @@
 
   function drawWindowCapy(c) {
     const x = c.x, y = c.y;
-    const blinds = c.blinds !== false;
+    const blinds = c.blinds !== false && !isMobilePlay();
     const open = 0.42 + 0.58 * Math.sin(c.phase * 0.85 + (c.blindOff || 0));
     ctx.save();
     ctx.fillStyle = '#1a0f3a';
@@ -2488,8 +2543,11 @@
     },
 
     draw(layer) {
+      const cullPad = isMobilePlay() ? 100 : 0;
       for (const c of this.items) {
-        if (c.layer === layer) c.draw(c);
+        if (c.layer !== layer) continue;
+        if (cullPad && (c.x < -cullPad || c.x > W + cullPad)) continue;
+        c.draw(c);
       }
     },
   };
@@ -4090,7 +4148,7 @@
   //   PARTICLES & POPUPS
   // ═════════════════════════════════════════════════════════════════════
   function spawnDust(x, y, n, color) {
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < particleBurst(n); i++) {
       state.particles.push({
         x: x + rand(-14, 14), y: y - 2,
         vx: rand(-220, 220), vy: -rand(20, 110),
@@ -4098,9 +4156,10 @@
         size: rand(4, 8), color, kind: 'dust', grav: -10,
       });
     }
+    trimParticles();
   }
   function spawnSpark(x, y, n, palette) {
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < particleBurst(n); i++) {
       const a = rand(0, Math.PI * 2);
       const s = rand(180, 420);
       state.particles.push({
@@ -4111,7 +4170,8 @@
     }
   }
   function spawnFireFlick(x, y) {
-    if (Math.random() > 0.45) return;
+    if (isMobilePlay() && Math.random() > 0.22) return;
+    if (!isMobilePlay() && Math.random() > 0.45) return;
     state.particles.push({
       x: x + rand(-8, 8), y: y + rand(-4, 4),
       vx: rand(-30, 30), vy: -rand(70, 130),
@@ -4121,7 +4181,7 @@
     });
   }
   function spawnBoostFlame() {
-    for (let n = 0; n < 2; n++) {
+    for (let n = 0; n < (isMobilePlay() ? 1 : 2); n++) {
       state.particles.push({
         x: state.truck.x - rand(0, 24),
         y: state.truck.y + rand(TRUCK_H * 0.45, TRUCK_H * 0.85),
@@ -4135,7 +4195,7 @@
   }
   function spawnCapySpark(x, y, n, color) {
     const c = color || '#b4884f';
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < particleBurst(n); i++) {
       const a = rand(0, Math.PI * 2);
       const s = rand(90, 280);
       state.particles.push({
@@ -4157,18 +4217,18 @@
   function spawnWaterSplash(x, y) {
     const season = getCostumeSeason();
     const pal = season.confetti || ['#4ec5ff', '#a8e6ff', '#fff7e0'];
-    spawnSpark(x, y, 16, pal);
-    spawnCapySpark(x, y, 5, season.accent);
+    spawnSpark(x, y, isMobilePlay() ? 8 : 16, pal);
+    spawnCapySpark(x, y, isMobilePlay() ? 3 : 5, season.accent);
     spawnRing(x, y, season.accent);
   }
   function juicePunch(amount) {
     state.camPunch = Math.max(state.camPunch, amount);
   }
   function spawnCrash(x, y) {
-    spawnSpark(x, y, 32, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0', '#1a0f3a']);
-    spawnCapySpark(x, y, 10, '#b4884f');
+    spawnSpark(x, y, isMobilePlay() ? 14 : 32, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0', '#1a0f3a']);
+    spawnCapySpark(x, y, isMobilePlay() ? 5 : 10, '#b4884f');
     spawnRing(x, y, '#ff5a3c');
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < particleBurst(12); i++) {
       state.particles.push({
         x: x + rand(-10, 10), y: y - 6,
         vx: rand(-160, 160), vy: -rand(120, 260),
@@ -4834,6 +4894,7 @@
   }
 
   function updateParticles(dt) {
+    trimParticles();
     for (let i = state.particles.length - 1; i >= 0; i--) {
       const p = state.particles[i];
       p.life -= dt;
@@ -4874,9 +4935,10 @@
     ctx.save();
 
     // Camera transform: shake + subtle truck-ride bob
-    const sx = (Math.random() - 0.5) * state.shake.mag;
-    const punch = state.camPunch * 12;
-    const sy = (Math.random() - 0.5) * state.shake.mag + state.cameraBob
+    const mobile = isMobilePlay();
+    const sx = mobile ? 0 : (Math.random() - 0.5) * state.shake.mag;
+    const punch = state.camPunch * (mobile ? 6 : 12);
+    const sy = (mobile ? 0 : (Math.random() - 0.5) * state.shake.mag) + state.cameraBob
       + Math.sin(performance.now() / 45) * punch;
     ctx.translate(sx, sy);
 
@@ -5053,12 +5115,15 @@
     const offset = -(scroll - start * TILE);
     ctx.save();
     const season = getCostumeSeason();
-    drawMegaCapySkyline(scroll, TILE * 3.2, baseY, 5000, {
-      color: '#2a1a5a',
-      windowColor: 'rgba(255, 200, 100, 0.55)',
-      neon: season.neon,
-    });
-    for (let i = 0; i < 6; i++) {
+    if (!isMobilePlay()) {
+      drawMegaCapySkyline(scroll, TILE * 3.2, baseY, 5000, {
+        color: '#2a1a5a',
+        windowColor: 'rgba(255, 200, 100, 0.55)',
+        neon: season.neon,
+      });
+    }
+    const farTiles = isMobilePlay() ? 4 : 6;
+    for (let i = 0; i < farTiles; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
       drawSkylineTile(tileX, baseY, TILE, tileIdx, {
@@ -5080,12 +5145,15 @@
     const start = Math.floor(scroll / TILE) - 1;
     const offset = -(scroll - start * TILE);
     ctx.save();
-    drawMegaCapySkyline(scroll, TILE * 3.5, baseY, 9000, {
-      color: '#12051f',
-      windowColor: 'rgba(255, 170, 80, 0.4)',
-      scale: 0.78,
-    });
-    for (let i = 0; i < 5; i++) {
+    if (!isMobilePlay()) {
+      drawMegaCapySkyline(scroll, TILE * 3.5, baseY, 9000, {
+        color: '#12051f',
+        windowColor: 'rgba(255, 170, 80, 0.4)',
+        scale: 0.78,
+      });
+    }
+    const fgTiles = isMobilePlay() ? 3 : 5;
+    for (let i = 0; i < fgTiles; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
       drawSkylineTile(tileX, baseY, TILE, tileIdx + 1000, {
@@ -5101,7 +5169,10 @@
   // Renders one tile of skyline. Generates 3-5 buildings with seeded
   // randomness so each tile is consistent but the line as a whole varies.
   function drawSkylineTile(tileX, baseY, tileW, seed, opts) {
-    const buildingCount = 3 + Math.floor(tileRand(seed, 1) * 3);
+    const mobile = isMobilePlay();
+    const buildingCount = mobile
+      ? 2 + Math.floor(tileRand(seed, 1) * 2)
+      : 3 + Math.floor(tileRand(seed, 1) * 3);
     const widths = [];
     let totalW = 0;
     for (let b = 0; b < buildingCount; b++) {
@@ -5137,11 +5208,11 @@
           const lit = tileRand(seed, wx + wy * 13);
           if (lit > 0.62) {
             let a = 1;
-            if (opts.flicker) {
+            if (opts.flicker && !mobile) {
               const flickerHash = (Math.floor(wx) ^ Math.floor(wy * 31)) & 7;
               if (flickerHash === 0) a = 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 300 + wx * 0.07));
             }
-            if (tileRand(seed, wx * 0.1 + wy) > 0.58) {
+            if (!mobile && tileRand(seed, wx * 0.1 + wy) > 0.58) {
               ctx.globalAlpha = a;
               drawProceduralBlindWindow(wx, wy, winW, winH, seed + wx + wy);
               ctx.globalAlpha = 1;
@@ -5268,6 +5339,7 @@
 
   // Chalk capy outlines on the curb — scrolls with the road parallax.
   function drawSidewalkChalkScroll() {
+    if (isMobilePlay()) return;
     const period = 300;
     const offset = -pmod(state.bg.road * 0.9, period);
     ctx.save();
@@ -5291,6 +5363,7 @@
 
   // Dark vignette above the road so ground obstacles always pop visually.
   function drawHudScrim() {
+    if (isMobilePlay()) return;
     if (mode !== 'playing' && mode !== 'dying') return;
     ctx.save();
     const topG = ctx.createLinearGradient(0, 0, 0, 108);
@@ -5323,8 +5396,9 @@
     const onTitle = mode === 'title';
     ctx.save();
     ctx.globalAlpha = onTitle ? 0.38 : 0.82;
-    for (let i = 0; i < 13; i++) {
-      const x = 50 + i * ((W - 100) / 12);
+    const capyN = isMobilePlay() ? 7 : 13;
+    for (let i = 0; i < capyN; i++) {
+      const x = 50 + i * ((W - 100) / Math.max(1, capyN - 1));
       const bob = Math.sin(t * 3 + i * 0.7) * 3;
       const y = GROUND_Y - 22 + bob;
       const hats = ['party', 'fd', 'melon', 'sunglasses', 'party', undefined];
@@ -5622,7 +5696,7 @@
     }
   }
   function drawPopups() {
-    const narrowWorld = typeof window !== 'undefined' && window.innerWidth < 520;
+    const narrowWorld = isMobilePlay() || (typeof window !== 'undefined' && window.innerWidth < 520);
     const maxPopW = narrowWorld ? W * 0.42 : W * 0.55;
     for (const p of state.popups) {
       const a = clamp(p.life / p.max, 0, 1);
