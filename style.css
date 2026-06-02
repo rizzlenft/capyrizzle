@@ -66,8 +66,34 @@ html, body {
   z-index: 2;
 }
 
-/* Portrait phones: stack menu under game — fixes 220px-tall letterbox clipping. */
-html.portrait-mobile #stage {
+/* Portrait gameplay: full-width 16:9 letterbox (do not crop canvas). */
+html.portrait-mobile[data-mode="playing"] #stage {
+  display: grid;
+  place-items: center;
+  height: 100svh;
+  height: 100dvh;
+  padding: 0;
+}
+html.portrait-mobile[data-mode="playing"] #frame {
+  width: min(100vw, calc(100svh * 16 / 9));
+  height: min(100svh, calc(100vw * 9 / 16));
+  max-width: 100vw;
+  max-height: 100svh;
+  flex: none;
+  aspect-ratio: auto;
+  min-height: 0;
+  margin: 0;
+  border-radius: 0;
+}
+html.portrait-mobile[data-mode="playing"] #game {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+/* Portrait menus only: stack scrollable panel under preview — fixes clipped title/GO. */
+html.portrait-mobile[data-mode="title"] #stage,
+html.portrait-mobile[data-mode="gameover"] #stage {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -78,21 +104,24 @@ html.portrait-mobile #stage {
   padding: 0;
   overflow: hidden;
 }
-html.portrait-mobile #frame {
+html.portrait-mobile[data-mode="title"] #frame,
+html.portrait-mobile[data-mode="gameover"] #frame {
   flex: 1 1 0;
   width: 100%;
   max-width: none;
   height: auto;
-  min-height: 38dvh;
+  min-height: 34dvh;
   max-height: none;
   aspect-ratio: 16 / 9;
   margin: 0 auto;
   border-radius: 0;
   align-self: center;
 }
-html.portrait-mobile #game {
-  object-fit: cover;
-  object-position: center center;
+html.portrait-mobile[data-mode="title"] #game,
+html.portrait-mobile[data-mode="gameover"] #game {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
 }
 
 #game {
@@ -130,6 +159,14 @@ html.portrait-mobile #game {
 .mute-btn.muted {
   border-color: rgba(255, 138, 60, 0.55);
   background: rgba(40, 16, 32, 0.92);
+}
+.mute-btn.mute-needs-tap {
+  animation: mute-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 0 2px rgba(168, 230, 255, 0.55), 0 4px 14px rgba(78, 197, 255, 0.35);
+}
+@keyframes mute-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
 }
 
 /* ── HUD (pinned to game frame) ── */
@@ -632,7 +669,8 @@ html.touch-ui .pwr-readout,
   pointer-events: auto;
 }
 
-html.portrait-mobile .overlay {
+html.portrait-mobile[data-mode="title"] .overlay,
+html.portrait-mobile[data-mode="gameover"] .overlay {
   position: relative;
   inset: auto;
   flex: 0 0 auto;
@@ -642,10 +680,10 @@ html.portrait-mobile .overlay {
   z-index: 4;
   border-top: 1px solid rgba(255, 247, 224, 0.12);
 }
-html.portrait-mobile #title.overlay {
+html.portrait-mobile[data-mode="title"] #title.overlay {
   background: linear-gradient(180deg, rgba(10, 6, 35, 0.92), rgba(10, 6, 35, 0.98));
 }
-html.portrait-mobile #gameover.overlay:not(.hidden) {
+html.portrait-mobile[data-mode="gameover"] #gameover.overlay:not(.hidden) {
   position: fixed;
   inset: 0;
   flex: none;

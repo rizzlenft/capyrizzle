@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.4-mobile-fix';
+  const BUILD = 'v27.5-mobile-play';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -204,6 +204,14 @@
     document.documentElement.classList.toggle('touch-ui', isTouchUi());
     document.documentElement.classList.toggle('short-frame', short);
     document.documentElement.classList.toggle('portrait-mobile', isPortraitMobile());
+    document.documentElement.dataset.mode = mode;
+  }
+
+  /** Fewer / wider skyline props on narrow portrait — seeded once per run. */
+  function isCompactWorld() {
+    const w = typeof window !== 'undefined' ? window.innerWidth : W;
+    const h = typeof window !== 'undefined' ? window.innerHeight : H;
+    return w < 520 || (w < 900 && h > w);
   }
 
   function syncPlayHints() {
@@ -739,8 +747,10 @@
       'HOT  TUB  WKLY', 'BLORBO  4  PRES', 'CAPY  CASINO', 'I  ♥  HAY',
       'NAP  APPROVED', 'CHONK  ENERGY', 'WET  DOG  VIBES', 'MELON  KING',
     ];
-    const BILL_SPACING = 480;
-    for (let i = 0; i < 12; i++) {
+    const compactWorld = isCompactWorld();
+    const BILL_SPACING = compactWorld ? 640 : 480;
+    const billCount = compactWorld ? 8 : 12;
+    for (let i = 0; i < billCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 200 + i * BILL_SPACING,
@@ -753,8 +763,9 @@
       });
     }
 
-    const WIN_SPACING = 100;
-    for (let i = 0; i < 36; i++) {
+    const WIN_SPACING = compactWorld ? 130 : 100;
+    const winCount = compactWorld ? 22 : 36;
+    for (let i = 0; i < winCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: -80 + i * WIN_SPACING + (i * 71) % 70,
@@ -881,8 +892,9 @@
       });
     }
 
-    const RIZZLE_SPACING = 1100;
-    for (let i = 0; i < 5; i++) {
+    const RIZZLE_SPACING = compactWorld ? 1400 : 1100;
+    const rizzleCount = compactWorld ? 3 : 5;
+    for (let i = 0; i < rizzleCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 750 + i * RIZZLE_SPACING,
@@ -893,8 +905,8 @@
     }
 
     // ── Pass 2: neon rooftops, balcony parties, searchlights ─────────
-    const narrowWorld = typeof window !== 'undefined' && window.innerWidth < 520;
-    const NEON_SPACING = narrowWorld ? 520 : 400;
+    const narrowWorld = compactWorld;
+    const NEON_SPACING = narrowWorld ? 560 : 400;
     const NEON_MSGS = ['CAPY SPA', 'SOAK BAR', 'RIZZLE FM', 'CHONK HQ', 'WET DOG'];
     const neonCount = narrowWorld ? 5 : 8;
     for (let i = 0; i < neonCount; i++) {
@@ -2525,9 +2537,16 @@
     if (hint) hint.classList.add('hidden');
   }
 
+  function setAudioSessionPlayback() {
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch (_) {}
+  }
+
   /** iOS needs resume + a started node in the *same* user-gesture stack. */
   function unlockAudioSync() {
     primeHtml5Audio();
+    setAudioSessionPlayback();
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return false;
     if (!ac) ac = new AC();
@@ -2551,26 +2570,42 @@
       hideSoundHint();
     }
     applyAudioLevels();
+    syncMuteHint();
     return ac.state === 'running' || ac.state === 'suspended';
   }
 
-  function unlockAudio() {
+  function unlockAudioAsync() {
     unlockAudioSync();
     const c = audio();
     if (!c) return Promise.resolve(false);
     if (c.state === 'suspended') {
       return c.resume().then(() => {
         applyAudioLevels();
-        if (!musicMuted) startSoundtrack();
+        if (!musicMuted) {
+          startSoundtrack();
+          hideSoundHint();
+        }
+        syncMuteHint();
         return c.state === 'running';
       }).catch(() => false);
     }
     return Promise.resolve(c.state === 'running');
   }
 
+  function unlockAudio() {
+    return unlockAudioAsync();
+  }
+
+  function syncMuteHint() {
+    if (!elMuteBtn) return;
+    const show = isTouchUi() && musicMuted && (mode === 'playing' || mode === 'title');
+    elMuteBtn.classList.toggle('mute-needs-tap', show);
+  }
+
   function bindAudioUnlock() {
     const prime = () => { unlockAudioSync(); };
     document.addEventListener('touchstart', prime, { capture: true, passive: true });
+    document.addEventListener('touchend', prime, { capture: true, passive: true });
     document.addEventListener('pointerdown', prime, { capture: true });
     document.addEventListener('keydown', prime, { capture: true });
   }
@@ -2696,15 +2731,18 @@
   }
 
   function toggleMute() {
-    unlockAudioSync();
-    musicMuted = !musicMuted;
-    try { localStorage.setItem(MUTE_KEY, musicMuted ? '1' : '0'); } catch {}
-    applyAudioLevels();
-    syncMuteButton();
-    if (!musicMuted) {
-      blip(440, 0.08, 'sine', 0.07, 660);
-      startSoundtrack();
-    }
+    unlockAudioAsync().then(() => {
+      musicMuted = !musicMuted;
+      try { localStorage.setItem(MUTE_KEY, musicMuted ? '1' : '0'); } catch {}
+      applyAudioLevels();
+      syncMuteButton();
+      if (!musicMuted) {
+        audioGestureUnlocked = true;
+        blip(440, 0.08, 'sine', 0.07, 660);
+        startSoundtrack();
+        hideSoundHint();
+      }
+    });
   }
 
   function syncMuteButton() {
@@ -2712,8 +2750,9 @@
     elMuteBtn.setAttribute('aria-pressed', musicMuted ? 'true' : 'false');
     elMuteBtn.setAttribute('aria-label', musicMuted ? 'Unmute sound' : 'Mute sound');
     elMuteBtn.textContent = musicMuted ? '🔇' : '🔊';
-    elMuteBtn.title = musicMuted ? 'Unmute sound' : 'Mute sound';
+    elMuteBtn.title = musicMuted ? 'Tap to turn sound on' : 'Mute sound';
     elMuteBtn.classList.toggle('muted', musicMuted);
+    syncMuteHint();
   }
   // Combo-aware audio — most sounds rise in pitch with combo for a
   // "leveling up" feel as a run gets hot. Combo expected in [1, 20].
@@ -2913,6 +2952,10 @@
       e.stopPropagation();
       unlockAudioSync();
     }, { passive: true });
+    btn.addEventListener('touchend', (e) => {
+      e.stopPropagation();
+      unlockAudioAsync();
+    }, { passive: true });
   }
   bindPlayButton(btnStart);
   bindPlayButton(btnRetry);
@@ -3073,14 +3116,20 @@
   }
 
   function startGame() {
-    unlockAudioSync();
-    resetRun();
-    state.runStartT = RUN_START_TIME;
-    startSoundtrack();
-    setMode('playing');
-    const season = getCostumeSeason();
-    blip(520, 0.12, 'triangle', 0.05, 780);
-    popup((season.emoji || '') + ' ' + season.label, W * 0.5, H * 0.32, season.accent, { big: true, life: 1.1, vy: -28 });
+    if (isTouchUi()) {
+      musicMuted = false;
+      try { localStorage.setItem(MUTE_KEY, '0'); } catch {}
+      syncMuteButton();
+    }
+    unlockAudioAsync().then(() => {
+      resetRun();
+      state.runStartT = RUN_START_TIME;
+      startSoundtrack();
+      setMode('playing');
+      const season = getCostumeSeason();
+      if (!musicMuted) blip(520, 0.12, 'triangle', 0.05, 780);
+      popup((season.emoji || '') + ' ' + season.label, W * 0.5, H * 0.32, season.accent, { big: true, life: 1.1, vy: -28 });
+    });
   }
 
   function die(cause) {
