@@ -23,7 +23,60 @@
  */
 
 (() => {
-  const BUILD = 'v9.4-achievements';
+  const BUILD = 'v9.5-mood';
+
+  // ═════════════════════════════════════════════════════════════════════
+  //   TIME-OF-DAY MOODS
+  // ═════════════════════════════════════════════════════════════════════
+  // Each mood overrides the sky gradient, horizon flame glow, and a few
+  // accent colors. Picked at random on each run so consecutive games
+  // feel visually distinct without changing gameplay at all.
+  const MOODS = {
+    dusk: {
+      label: 'DUSK',
+      sky: [
+        [0.00, '#0c0830'], [0.32, '#1d104f'], [0.58, '#4a1d7a'],
+        [0.82, '#b34186'], [0.94, '#ff7a3c'], [1.00, '#ffb060'],
+      ],
+      glow: ['#ffa546', '#ff6e3c', '#ff5a3c'],
+      moonTint: '#ffe6a0',
+      starTint: '#fff7e0',
+    },
+    dawn: {
+      label: 'DAWN',
+      sky: [
+        [0.00, '#10174c'], [0.30, '#3c2675'], [0.55, '#a14079'],
+        [0.78, '#ff8a6a'], [0.92, '#ffc06a'], [1.00, '#ffe09a'],
+      ],
+      glow: ['#ffbb6a', '#ff9054', '#ff7050'],
+      moonTint: '#ffe8d0',
+      starTint: '#ffe9bd',
+    },
+    night: {
+      label: 'NIGHT',
+      sky: [
+        [0.00, '#04062b'], [0.32, '#0b1654'], [0.62, '#1a2b88'],
+        [0.85, '#3d3f9a'], [0.95, '#6c5cff'], [1.00, '#8b6fff'],
+      ],
+      glow: ['#7fb8ff', '#5070ff', '#4060ff'],
+      moonTint: '#e6f0ff',
+      starTint: '#cce8ff',
+    },
+    inferno: {
+      label: 'INFERNO',
+      sky: [
+        [0.00, '#1c0408'], [0.30, '#4a0a18'], [0.58, '#841830'],
+        [0.78, '#d52f3a'], [0.92, '#ff6a3c'], [1.00, '#ffaa55'],
+      ],
+      glow: ['#ffaa55', '#ff6a3c', '#ff3030'],
+      moonTint: '#ffd095',
+      starTint: '#ffd09a',
+    },
+  };
+  function pickMood() {
+    const ids = Object.keys(MOODS);
+    return MOODS[ids[Math.floor(Math.random() * ids.length)]];
+  }
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -1220,6 +1273,7 @@
     achievements: [],// {label, life, max} — first-time celebrations
     achUnlocked: null, // Set of unlocked achievement ids (lazy-loaded)
     everSaved: false,  // run-local flag, used by achievement test
+    mood: null,        // current time-of-day mood (set by resetRun)
     particles: [],
     popups: [],
 
@@ -1364,6 +1418,7 @@
     state.achievements.length = 0;
     state.everSaved = false;
     state.achUnlocked = loadAchievements();
+    state.mood = pickMood();
 
     state.nextObstacleDist = 900;
     state.nextPickupDist   = 700;
@@ -1905,11 +1960,15 @@
       life: 1.6, max: 1.6,
     });
   }
-  // Debug hook: window.__cr_telegraph(text, color) for visual verification.
+  // Debug hooks for visual verification (only when ?debug=1).
   if (/[?&]debug=1\b/.test(location.search)) {
     window.__cr_telegraph = (text, color) => {
       showTelegraph(text || 'TEST!', color || '#ff5a3c');
       return { count: state.telegraphs.length, mode };
+    };
+    window.__cr_mood = (id) => {
+      if (MOODS[id]) { state.mood = MOODS[id]; return MOODS[id].label; }
+      return Object.keys(MOODS);
     };
   }
 
@@ -2380,25 +2439,21 @@
   // Burning-city sunset. Reads top-down as:
   //   deep navy night → indigo → magenta → ember orange → smoke band on horizon
   function drawSky() {
+    const mood = state.mood || MOODS.dusk;
     const g = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    g.addColorStop(0.00, '#0c0830');
-    g.addColorStop(0.32, '#1d104f');
-    g.addColorStop(0.58, '#4a1d7a');
-    g.addColorStop(0.82, '#b34186');
-    g.addColorStop(0.94, '#ff7a3c');
-    g.addColorStop(1.00, '#ffb060');
+    for (const [stop, color] of mood.sky) g.addColorStop(stop, color);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, GROUND_Y);
 
     // Stars — slow twinkle. Procedural & deterministic so they don't pop.
     ctx.save();
     const tw = performance.now() / 900;
+    const starRGB = hexToRgb(mood.starTint);
     for (let i = 0; i < 70; i++) {
-      // Cheap deterministic pseudorandom from i.
       const sx = (i * 97.13)  % W;
       const sy = (i * 53.71)  % (GROUND_Y * 0.55);
       const tw2 = 0.4 + 0.6 * Math.abs(Math.sin(tw + i * 0.7));
-      ctx.fillStyle = 'rgba(255, 247, 224, ' + (tw2 * 0.7) + ')';
+      ctx.fillStyle = 'rgba(' + starRGB + ', ' + (tw2 * 0.7) + ')';
       ctx.fillRect(sx, sy, i % 9 === 0 ? 2 : 1, i % 9 === 0 ? 2 : 1);
     }
     ctx.restore();
@@ -2406,39 +2461,43 @@
     // Moon — crescent with a few crater dots.
     ctx.save();
     const mcx = W * 0.74, mcy = 130, mr = 44;
-    // glow halo
+    const moonRGB = hexToRgb(mood.moonTint);
     const halo = ctx.createRadialGradient(mcx, mcy, mr * 0.4, mcx, mcy, mr * 2.4);
-    halo.addColorStop(0,   'rgba(255, 230, 160, 0.55)');
-    halo.addColorStop(0.5, 'rgba(255, 200, 120, 0.18)');
-    halo.addColorStop(1,   'rgba(255, 200, 120, 0)');
+    halo.addColorStop(0,   'rgba(' + moonRGB + ', 0.55)');
+    halo.addColorStop(0.5, 'rgba(' + moonRGB + ', 0.18)');
+    halo.addColorStop(1,   'rgba(' + moonRGB + ', 0)');
     ctx.fillStyle = halo;
     ctx.beginPath(); ctx.arc(mcx, mcy, mr * 2.4, 0, Math.PI * 2); ctx.fill();
-    // full disc
-    ctx.fillStyle = '#ffe6a0';
+    ctx.fillStyle = mood.moonTint;
     ctx.beginPath(); ctx.arc(mcx, mcy, mr, 0, Math.PI * 2); ctx.fill();
-    // shadow disc making a crescent
-    ctx.fillStyle = 'rgba(76, 35, 100, 0.78)';
+    ctx.fillStyle = 'rgba(46, 25, 70, 0.78)';
     ctx.beginPath(); ctx.arc(mcx + mr * 0.32, mcy - mr * 0.05, mr * 0.92, 0, Math.PI * 2); ctx.fill();
-    // a few craters on the lit side
-    ctx.fillStyle = 'rgba(180, 130, 60, 0.45)';
+    ctx.fillStyle = 'rgba(180, 130, 60, 0.40)';
     ctx.beginPath(); ctx.arc(mcx - mr * 0.32, mcy - mr * 0.18, 4, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(mcx - mr * 0.50, mcy + mr * 0.10, 3, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(mcx - mr * 0.18, mcy + mr * 0.35, 3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 
-    // Distant flame glow on the horizon — the rest of the city is on fire,
-    // sells the firefighter premise without the player having to read it.
+    // Distant flame glow on the horizon — color shifts per mood.
     ctx.save();
     const horizonY = GROUND_Y - 14;
     const flicker = 0.78 + 0.22 * Math.sin(performance.now() / 220);
+    const [g1, g2, g3] = mood.glow.map(hexToRgb);
     const glow = ctx.createRadialGradient(W * 0.5, horizonY, 40, W * 0.5, horizonY, W * 0.7);
-    glow.addColorStop(0,   'rgba(255, 165, 70,  ' + (0.55 * flicker) + ')');
-    glow.addColorStop(0.5, 'rgba(255, 110, 60,  ' + (0.18 * flicker) + ')');
-    glow.addColorStop(1,   'rgba(255, 90, 60,   0)');
+    glow.addColorStop(0,   'rgba(' + g1 + ', ' + (0.55 * flicker) + ')');
+    glow.addColorStop(0.5, 'rgba(' + g2 + ', ' + (0.18 * flicker) + ')');
+    glow.addColorStop(1,   'rgba(' + g3 + ', 0)');
     ctx.globalCompositeOperation = 'lighter';
     ctx.fillStyle = glow;
     ctx.fillRect(0, horizonY - 80, W, 80);
     ctx.restore();
+  }
+  function hexToRgb(hex) {
+    const v = hex.replace('#', '');
+    const n = parseInt(v.length === 3
+      ? v.split('').map(c => c + c).join('')
+      : v, 16);
+    return ((n >> 16) & 0xff) + ', ' + ((n >> 8) & 0xff) + ', ' + (n & 0xff);
   }
 
   // Building palette — drawn as silhouettes against the sunset.
