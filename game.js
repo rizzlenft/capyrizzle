@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.2.1-hud-stable';
+  const BUILD = 'v27.3-mobile-compact';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -194,7 +194,7 @@
 
   function syncUiMode() {
     const frame = document.getElementById('frame');
-    const short = frame ? frame.clientHeight < 360 : window.innerHeight < 400;
+    const short = frame ? frame.clientHeight < 420 : window.innerHeight < 480;
     document.documentElement.classList.toggle('touch-ui', isTouchUi());
     document.documentElement.classList.toggle('short-frame', short);
   }
@@ -4688,19 +4688,26 @@
     // when far from it. Appears within 80% of best, turns into a juicy
     // "NEW BEST!" pulse the moment we cross.
     if (elBestChase) {
-      if (state.best <= 0) {
-        elBestChase.classList.add('hidden');
-      } else if (state.score >= state.best) {
-        elBestChase.classList.remove('hidden');
-        elBestChase.classList.add('beat');
-        elBestChase.textContent = 'NEW BEST  +' + (state.score - state.best).toLocaleString();
-      } else if (state.score >= state.best * 0.8) {
-        elBestChase.classList.remove('hidden');
-        elBestChase.classList.remove('beat');
-        elBestChase.textContent = (state.best - state.score).toLocaleString() + ' TO BEST';
-      } else {
-        elBestChase.classList.add('hidden');
-        elBestChase.classList.remove('beat');
+      let chaseKey = 'hide';
+      if (state.best > 0 && state.score >= state.best) {
+        chaseKey = 'beat:' + Math.floor((state.score - state.best) / 25);
+      } else if (state.best > 0 && state.score >= state.best * 0.8) {
+        chaseKey = 'chase:' + Math.floor((state.best - state.score) / 25);
+      }
+      if (hudDomCache.chaseKey !== chaseKey) {
+        hudDomCache.chaseKey = chaseKey;
+        if (chaseKey.startsWith('beat:')) {
+          elBestChase.classList.remove('hidden');
+          elBestChase.classList.add('beat');
+          elBestChase.textContent = 'NEW BEST  +' + (state.score - state.best).toLocaleString();
+        } else if (chaseKey.startsWith('chase:')) {
+          elBestChase.classList.remove('hidden');
+          elBestChase.classList.remove('beat');
+          elBestChase.textContent = (state.best - state.score).toLocaleString() + ' TO BEST';
+        } else {
+          elBestChase.classList.add('hidden');
+          elBestChase.classList.remove('beat');
+        }
       }
     }
   }
