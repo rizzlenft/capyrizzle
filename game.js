@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v9.5-mood';
+  const BUILD = 'v23.0-submit-ready';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -75,10 +75,142 @@
   };
   function pickMood() {
     const ids = Object.keys(MOODS);
-    return MOODS[ids[Math.floor(Math.random() * ids.length)]];
+    let id;
+    do {
+      id = ids[Math.floor(Math.random() * ids.length)];
+    } while (ids.length > 1 && state.mood && state.mood.id === id);
+    return Object.assign({ id }, MOODS[id]);
+  }
+
+  // Costume season — new palette + city tint each run (cosmetic only).
+  const COSTUME_SEASONS = {
+    summer: {
+      label: 'SUMMER SOAK', emoji: '☀️', accent: '#4ec5ff',
+      hat: 'sunglasses', prop: 'icecream',
+      skyWash: 'rgba(78, 197, 255, 0.22)',
+      sidewalk: '#3d5a9a', road: '#0c1438',
+      smokeTints: ['#6a9abf', '#8ab8d8', '#5a8aaa', '#7ac0e8'],
+      balloons: ['#4ec5ff', '#ffd24a', '#ff8a3c', '#a8e6ff'],
+      confetti: ['#4ec5ff', '#ffd24a', '#fff7e0'],
+      neon: ['#4ec5ff', '#ffd24a'],
+    },
+    winter: {
+      label: 'WINTER CHONK', emoji: '❄️', accent: '#a8e6ff',
+      hat: null, prop: 'scarf',
+      skyWash: 'rgba(168, 230, 255, 0.2)',
+      sidewalk: '#2a3a6a', road: '#060a1a',
+      smokeTints: ['#8aa0c8', '#a8b8d8', '#6a80aa', '#c8d8f0'],
+      balloons: ['#a8e6ff', '#fff7e0', '#8c6bff', '#4ec5ff'],
+      confetti: ['#a8e6ff', '#fff7e0', '#c8d8f0'],
+      neon: ['#a8e6ff', '#fff7e0'],
+    },
+    spring: {
+      label: 'SPRING SPLASH', emoji: '🌸', accent: '#ff8a8a',
+      hat: 'flower', prop: 'bouquet',
+      skyWash: 'rgba(255, 138, 138, 0.16)',
+      sidewalk: '#4a3a7a', road: '#10082a',
+      smokeTints: ['#b88aaa', '#d8a8c8', '#9a7a9a', '#e8b8d0'],
+      balloons: ['#ff8a8a', '#ffd24a', '#8c6bff', '#4ec5ff'],
+      confetti: ['#ff8a8a', '#ffd24a', '#ff5a8a'],
+      neon: ['#ff8a8a', '#ffd24a'],
+    },
+    autumn: {
+      label: 'AUTUMN NAP', emoji: '🍂', accent: '#ff8a3c',
+      hat: null, prop: 'leaves',
+      skyWash: 'rgba(255, 138, 60, 0.2)',
+      sidewalk: '#4a3528', road: '#140a08',
+      smokeTints: ['#aa7a5a', '#c89a6a', '#8a6a4a', '#d8aa7a'],
+      balloons: ['#ff8a3c', '#ffd24a', '#d94028', '#c9a566'],
+      confetti: ['#ff8a3c', '#ffd24a', '#d94028'],
+      neon: ['#ff8a3c', '#ffd24a'],
+    },
+    festival: {
+      label: 'CAPY FEST', emoji: '🎉', accent: '#ffd24a',
+      hat: 'party', prop: 'glowsticks',
+      skyWash: 'rgba(255, 210, 74, 0.18)',
+      sidewalk: '#4a3a6a', road: '#0e0828',
+      smokeTints: ['#aa8ac8', '#c8a8e8', '#9a7ab8', '#dab8f0'],
+      balloons: ['#ff5a8a', '#4ec5ff', '#ffd24a', '#8c6bff'],
+      confetti: ['#ff5a8a', '#4ec5ff', '#ffd24a', '#8c6bff'],
+      neon: ['#ff5a8a', '#ffd24a'],
+    },
+    capyjam: {
+      label: 'CAPYJAM 2026', emoji: '🚒', accent: '#ff5a8a',
+      hat: 'fd', prop: 'badge',
+      skyWash: 'rgba(255, 90, 138, 0.14)',
+      sidewalk: '#3b2a7a', road: '#0a0623',
+      smokeTints: ['#7a5a8a', '#a36a8a', '#6e4d8e', '#b67c9a'],
+      balloons: ['#ff5a8a', '#ffd24a', '#d94028', '#4ec5ff'],
+      confetti: ['#ff5a8a', '#ffd24a', '#4ec5ff'],
+      neon: ['#ff5a8a', '#ffd24a'],
+    },
+  };
+  function pickCostumeSeason() {
+    const ids = Object.keys(COSTUME_SEASONS);
+    let id;
+    do {
+      id = ids[Math.floor(Math.random() * ids.length)];
+    } while (ids.length > 1 && state.costumeSeason && state.costumeSeason.id === id);
+    return Object.assign({ id }, COSTUME_SEASONS[id]);
+  }
+  function getCostumeSeason() {
+    return state.costumeSeason || COSTUME_SEASONS.capyjam;
+  }
+  function truncateHudText(text, maxLen) {
+    if (!text || text.length <= maxLen) return text;
+    return text.slice(0, Math.max(0, maxLen - 1)) + '…';
+  }
+  function syncThemeHud() {
+    const season = getCostumeSeason();
+    const mood = state.mood || MOODS.dusk;
+    const seasonText = (season.emoji || '') + ' ' + season.label;
+    const moodText = mood.label || 'DUSK';
+    const fullTheme = seasonText + ' · ' + moodText;
+    const nodes = [
+      { el: elTitleTheme, text: fullTheme, color: season.accent },
+      { el: elGoTheme, text: 'This run: ' + fullTheme, color: season.accent },
+      { el: elSeasonPill, text: truncateHudText(seasonText, 22), color: season.accent, title: fullTheme },
+    ];
+    for (const n of nodes) {
+      if (!n.el) continue;
+      n.el.textContent = n.text;
+      n.el.style.color = n.color;
+      n.el.style.borderColor = n.color;
+      if (n.title != null) n.el.title = n.title;
+    }
+    if (elSeasonPill) elSeasonPill.classList.toggle('hidden', mode !== 'playing');
+    if (elTitleTheme) elTitleTheme.classList.remove('hidden');
+  }
+  function syncPlayHints() {
+    if (!elPlayHints) return;
+    const jumpOn = state.hint.jumpA > 0.04;
+    const waterOn = state.hint.waterA > 0.04;
+    const shieldOn = state.hint.shieldA > 0.04;
+    const any = jumpOn || waterOn || shieldOn;
+    elPlayHints.classList.toggle('hidden', mode !== 'playing' || !any);
+    if (elHintJump) {
+      elHintJump.classList.toggle('hidden', !jumpOn);
+      elHintJump.style.opacity = String(clamp(state.hint.jumpA, 0, 1));
+      elHintJump.textContent = hasJumpAssist()
+        ? 'SPACEBAR — full jump'
+        : 'SPACEBAR to jump every fire';
+    }
+    if (elHintWater) {
+      elHintWater.classList.toggle('hidden', !waterOn);
+      elHintWater.style.opacity = String(clamp(state.hint.waterA, 0, 1));
+    }
+    if (elHintShield) {
+      elHintShield.classList.toggle('hidden', !shieldOn);
+      elHintShield.style.opacity = String(clamp(state.hint.shieldA, 0, 1));
+    }
   }
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
+  function logRunTheme() {
+    const s = getCostumeSeason();
+    const m = state.mood || MOODS.dusk;
+    console.info('[CapyRizzle] run theme: ' + s.label + ' (' + s.id + ') · mood: ' + m.label);
+  }
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
   // diagnostics available for dev without polluting the shipped game.
   const DEBUG = /[?&]debug=1\b/.test(location.search);
@@ -109,6 +241,9 @@
   const elBest       = $('best');
   const elBoost      = $('boost');
   const elBoostLabel = $('boostLabel');
+  const elBoostTimer = $('boostTimer');
+  const elArmorRow   = $('armorRow');
+  const elHeatPill   = $('heatPill');
   const elCombo      = $('combo');
   const elComboPop   = $('comboPop');
   const elMilestone  = $('milestonePop');
@@ -122,6 +257,15 @@
   const elDebugTag   = $('debugTag');
   const elDebugState = $('debugState');
   const elBestChase  = $('bestChase');
+  const elTitleTheme = $('titleTheme');
+  const elGoTheme    = $('goTheme');
+  const elSeasonPill = $('seasonPill');
+  const elPlayHints  = $('playHints');
+  const elHintJump   = $('hintJump');
+  const elHintWater  = $('hintWater');
+  const elHintShield = $('hintShield');
+  const elArmorStatus = $('armorStatus');
+  const elMuteBtn     = $('muteBtn');
 
   // ─── TUNING ───────────────────────────────────────────────────────────
   const GROUND_Y = 450;
@@ -136,29 +280,56 @@
   const APEX_GRAV_MUL  = 0.55;     // gravity multiplier near the apex (hang time)
   const APEX_BAND      = 220;      // |vy| below which we're "near apex"
   const CROUCH_TIME    = 0.07;     // seconds of anticipation crouch before liftoff
-  const JUMP_BUFFER    = 0.16;     // tap-while-airborne buffer (auto-jumps on landing)
+  const JUMP_BUFFER    = 0.16;
+  const JUMP_ASSIST_TIME   = 40;
+  const JUMP_ASSIST_COUNT  = 20;
+  const EASY_RUN_TIME      = 38;
+  const TRAINING_SPAWNS    = 5;
+  const TRAINING_LEAD_PX   = 340;
+  const FIRST_FLAME_LEAD_PX = 260;
 
-  // Pace — locked warmup, then very gentle ramp
-  const BASE_SPEED    = 200;
-  const WARMUP_SPEED  = 200;
-  const WARMUP_TIME   = 6;         // short on-ramp — player gets moving fast
-  const MAX_SPEED     = 480;       // tighter ceiling — game stays controllable
-  const RAMP_PER_SEC  = 9;         // px/s gained per second after warmup
+  // Pace targets (gaps use seconds × speed so rhythm stays fair as speed climbs):
+  //   0–5s    300 px/s flat — jump timing matches mid-run feel, not sluggish 200
+  //   5–30s   ramp → 480; singles; ~2.5–3s between patterns early
+  //   30–55s  doubles; ~1.8–2.2s between patterns
+  //   55s+    triples/surges; ~1.3–1.7s between patterns at high speed
+  const BASE_SPEED         = 300;
+  const WARMUP_SPEED       = 300;
+  const WARMUP_TIME        = 5;
+  const MAX_SPEED          = 480;
+  const ABSOLUTE_MAX_SPEED = 640;
+  const RAMP_PER_SEC       = 8;
+  const POST_CAP_RAMP      = 7;
 
-  // Boost
-  const BOOST_MULT       = 1.55;
-  const BOOST_TIME_PER   = 2.6;    // seconds added per water
-  const BOOST_MAX_TIME   = 6.5;    // cap
-  const BOOST_SCORE_MULT = 2.0;
+  const HEAT_AT = [0, 32, 50, 70, 92, 118, 150];
+  const SURGE_AFTER_TIER = 4;
+  const SURGE_INTERVAL   = 16;
+  const SURGE_DURATION   = 6;
+  const SURGE_SPEED_MUL  = 1.14;  // capped so in-pattern fire spacing stays jumpable
+  const SURGE_GAP_MUL    = 0.72;
 
-  // Spawning
-  const GRACE_TIME = 1.6;          // seconds with no obstacles at run start
-  const OBSTACLE_GAP_MIN_EARLY = 520;
-  const OBSTACLE_GAP_MAX_EARLY = 820;
-  const OBSTACLE_GAP_MIN_LATE  = 360;
-  const OBSTACLE_GAP_MAX_LATE  = 600;
-  const PICKUP_GAP_MIN = 380;
-  const PICKUP_GAP_MAX = 700;
+  // BOOST = speed + score only. You ALWAYS jump fires (no invincibility smashing).
+  const BOOST_MULT         = 1.42;
+  const BOOST_TIME_PER     = 1.35;  // first pickup
+  const BOOST_TOPOFF_MUL   = 0.35;  // topping off while already boosted
+  const BOOST_MAX_BASE     = 3.8;   // cap shrinks with heat via getBoostCap()
+  const BOOST_SCORE_MULT   = 2.0;
+  const BOOST_DRAIN_BASE   = 0.22;  // fuel burns while active — can't coast forever
+  const BOOST_DRAIN_HEAT   = 0.06;  // extra drain per heat tier
+
+  // ARMOR — one charge per run. Second star = bonus points only.
+  const ARMOR_PER_RUN = 1;
+
+  const FIRST_SPAWN_AT = 3.8;
+  // Min horizontal px between consecutive fires in one pattern.
+  // cycle ≈ jump airtime + crouch + buffer ≈ 1.04s @ ABS 640 + surge 1.14 → need ≥ 756px.
+  const MIN_MULTI_FIRE_DX = 780;
+  // Seconds between patterns (multiplied by current speed in spawnPattern).
+  const GAP_SEC_EARLY  = [2.35, 3.05];
+  const GAP_SEC_MID    = [1.75, 2.35];
+  const GAP_SEC_LATE   = [1.25, 1.65];
+  const GAP_SEC_TRAIN  = [2.5, 3.1];
+  const GAP_SEC_CALM   = [0.35, 0.65];
   const PICKUP_LIFT_MIN = 80;
   const PICKUP_LIFT_MAX = 150;
 
@@ -177,14 +348,48 @@
 
   // Slow-mo on near-miss
   const SLOWMO_FACTOR   = 0.45;
-  const SLOWMO_TIME     = 0.18;
+  const SLOWMO_TIME     = 0.24;
+  const RUN_START_TIME  = 1.05;
+  const COMBO_CHEERS    = ['SOAKY!', 'NICE!', 'WET HERO', 'CHONK', 'RIZZLE RUSH', 'UNSTOPPABLE', 'MAX CAPY'];
+  const NEAR_MISS_LINES = ['CLOSE!', 'WHEW!', 'EDGE!', 'SPLASH BY!'];
 
   // Milestones
   const MILESTONE_M = 250;
+  const SPECIAL_MILESTONES = {
+    500:  'HALF K!',
+    1000: '1KM HERO!',
+    2000: '2KM BLAZE!',
+  };
+
+  // Clean-jump streak — Subway/Temple Run style micro-rewards for rhythm.
+  const STREAK_EVERY = 5;
+  const STREAK_BONUS_MUL = 1.35;  // score multiplier window after ON FIRE pop
+  const STREAK_MUL_TIME = 4.0;
+
+  // Wave director — themed 12–18s blocks so the run has acts, not one flat loop.
+  const WAVES = {
+    calm: {
+      id: 'calm', tag: 'calm', tele: 'BREATHER', color: '#a8e6ff',
+      patternsMin: 2, patternsMax: 3, gapMul: 1.4,
+    },
+    reward: {
+      id: 'reward', tag: 'reward', tele: 'REWARD RUN', color: '#4ec5ff',
+      patternsMin: 2, patternsMax: 4, gapMul: 1.0,
+    },
+    pressure: {
+      id: 'pressure', tag: 'pressure', tele: 'HEATING UP', color: '#ff8a3c',
+      patternsMin: 3, patternsMax: 5, gapMul: 0.82,
+    },
+    spectacle: {
+      id: 'spectacle', tag: 'spectacle', tele: 'WATCH OUT!', color: '#ff5a3c',
+      patternsMin: 1, patternsMax: 2, gapMul: 1.05,
+    },
+  };
 
   const HIGHSCORE_KEY = 'capyrizzlerush_best_v5';
   const TUTORIAL_KEY  = 'capyrizzlerush_tut_v5';
   const ACHIEVE_KEY   = 'capyrizzlerush_ach_v1';
+  const MUTE_KEY      = 'capyrizzlerush_mute_v1';
   // First-time accomplishment definitions. Each fires at most once
   // across runs (persisted via localStorage as a bitmap).
   const ACHIEVEMENTS = [
@@ -192,7 +397,7 @@
     { id: 'firstX10',      label: 'COMBO x10',        test: (s) => s.combo    >= 10 },
     { id: 'firstX20',      label: 'COMBO x20 MAX!',   test: (s) => s.combo    >= 20 },
     { id: 'firstSaved',    label: 'FIRST SAVE!',      test: (s) => s.everSaved },
-    { id: 'firstBoost',    label: 'FIRST SIREN!',     test: (s) => s.boostUsed >= 1 },
+    { id: 'firstBoost',    label: 'FIRST BOOST!',    test: (s) => s.boostUsed >= 1 },
     { id: 'first5km',      label: '5 KILOMETERS',     test: (s) => s.distance >= 5000 },
     { id: 'firstRankC',    label: 'RANK C OR BETTER', test: (s) => s.score >= 5000 },
     { id: 'firstRankB',    label: 'RANK B HERO',      test: (s) => s.score >= 15000 },
@@ -272,193 +477,417 @@
   //       when off-screen. Use for things you want to randomize positions.
   // ═════════════════════════════════════════════════════════════════════
   function seedCosmetics() {
+    const season = getCostumeSeason();
+    const smokeTints = season.smokeTints || COSTUME_SEASONS.capyjam.smokeTints;
+    const balloons = season.balloons || COSTUME_SEASONS.capyjam.balloons;
+    const confettiColors = season.confetti || COSTUME_SEASONS.capyjam.confetti;
+    const neonPair = season.neon || COSTUME_SEASONS.capyjam.neon;
+    const billAccents = [season.accent, neonPair[0], neonPair[1], '#ffd24a', '#ff8a3c', '#8c6bff'];
+    const layoutOx = { summer: 0, winter: 95, spring: 190, autumn: 285, festival: 380, capyjam: 475 }[season.id] || 0;
+
     // ── Smoke columns rising from the burning city ──────────────────
-    const SMOKE_SPACING = 280;
-    for (let i = 0; i < 10; i++) {
+    const SMOKE_SPACING = 240;
+    for (let i = 0; i < 14; i++) {
       Cosmetics.add({
         layer: 'skylineBg',
-        x: i * SMOKE_SPACING + rand(-80, 80),
+        x: layoutOx * 0.4 + i * SMOKE_SPACING + rand(-80, 80),
         y: GROUND_Y - 120,
         parallax: 0.18,
-        wrap: SMOKE_SPACING * 5,
-        scale: rand(0.7, 1.4),
-        tint: ['#7a5a8a', '#a36a8a', '#6e4d8e', '#b67c9a'][i % 4],
+        wrap: SMOKE_SPACING * 6,
+        scale: rand(0.7, 1.5),
+        tint: smokeTints[i % smokeTints.length],
         draw: drawSmokeColumn,
       });
     }
 
+    // ── Murals on mid-rise walls (skyline bg) ───────────────────────
+    const MURAL_TAGS = ['WET  IS  BEST', 'CAPY  PRIDE', 'SOAK  DAILY', 'HAY  O  CLOCK', 'RIVAL  BEAVER?  NO'];
+    const MURAL_SPACING = 420;
+    for (let i = 0; i < 7; i++) {
+      Cosmetics.add({
+        layer: 'skylineBg',
+        x: layoutOx + 300 + i * MURAL_SPACING,
+        y: GROUND_Y - 75 - (i % 2) * 18,
+        parallax: 0.35,
+        wrap: MURAL_SPACING * 5,
+        tagline: MURAL_TAGS[i % MURAL_TAGS.length],
+        draw: drawMuralCapy,
+      });
+    }
+
+    // ── Colossal capy statues on the horizon ────────────────────────
+    for (let i = 0; i < 3; i++) {
+      Cosmetics.add({
+        layer: 'farBg',
+        x: 500 + i * 1100,
+        y: GROUND_Y - 140,
+        parallax: 0.08,
+        wrap: 3200,
+        draw: drawGiantCapyStatue,
+      });
+    }
+
     // ── Sky NPCs — capybaras spread across the whole sky ─────────────
-    // Hot-air balloons at different heights / colors / speeds.
     const BALLOONS = [
-      { y:  60, vx: -22, color: '#ff5a8a' },
-      { y: 110, vx: -14, color: '#4ec5ff' },
-      { y:  90, vx: -18, color: '#ffd24a' },
-      { y:  40, vx: -12, color: '#a8e6ff' },
-      { y: 130, vx: -16, color: '#ff8a3c' },
+      { y:  55, vx: -24, color: balloons[0] },
+      { y: 100, vx: -14, color: balloons[1] },
+      { y:  85, vx: -19, color: balloons[2] },
+      { y:  38, vx: -11, color: balloons[3] },
+      { y: 125, vx: -17, color: balloons[0] },
+      { y:  70, vx: -20, color: balloons[1] },
+      { y: 145, vx: -13, color: balloons[2] },
+      { y:  48, vx: -15, color: balloons[3] },
     ];
     BALLOONS.forEach((b, i) => {
       Cosmetics.add({
         layer: 'sky',
-        x: W + 200 + i * 380, y: b.y,
+        x: W + 200 + i * 320, y: b.y,
         vx: b.vx, parallax: 0,
-        respawnX: W + rand(1200, 2400),
+        respawnX: W + rand(1100, 2200),
         balloonColor: b.color,
-        bobAmp: rand(4, 8), bobSpeed: rand(0.7, 1.4),
         draw: drawBalloonCapy,
       });
     });
-    // Hang-glider capys gliding both directions.
-    Cosmetics.add({
-      layer: 'sky',
-      x: -120, y: 50, vx: 16, parallax: 0,
-      respawnX: -rand(900, 1500),
-      draw: drawGliderCapy,
-    });
-    Cosmetics.add({
-      layer: 'sky',
-      x: W + 600, y: 75, vx: -12, parallax: 0,
-      respawnX: W + rand(1000, 1800),
-      draw: drawGliderCapy,
-    });
-    // Lazy capy clouds — capybara-shaped clouds drifting by.
-    for (let i = 0; i < 4; i++) {
+    const gliders = [
+      { x: -120, y: 48, vx: 18, respawn: -rand(800, 1400) },
+      { x: W + 500, y: 72, vx: -14, respawn: W + rand(900, 1600) },
+      { x: W + 1200, y: 38, vx: -10, respawn: W + rand(1400, 2200) },
+    ];
+    gliders.forEach((g) => {
       Cosmetics.add({
         layer: 'sky',
-        x: rand(0, W), y: rand(30, 160),
-        vx: rand(-9, -4), parallax: 0,
-        respawnX: W + rand(400, 1400),
-        cloudScale: rand(0.7, 1.3),
+        x: g.x, y: g.y, vx: g.vx, parallax: 0,
+        respawnX: g.respawn,
+        draw: drawGliderCapy,
+      });
+    });
+    for (let i = 0; i < 6; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: rand(0, W), y: rand(28, 150),
+        vx: rand(-10, -3), parallax: 0,
+        respawnX: W + rand(400, 1200),
+        cloudScale: rand(0.65, 1.35),
         draw: drawCloudCapy,
       });
     }
-    // The flying capy blimp — slow, huge, with a banner.
-    Cosmetics.add({
-      layer: 'sky',
-      x: W + 800, y: 50, vx: -10, parallax: 0,
-      respawnX: W + rand(2400, 4000),
-      draw: drawCapyBlimp,
-    });
-    // UFO with capybara abductee.
-    Cosmetics.add({
-      layer: 'sky',
-      x: W + 1500, y: 110, vx: -28, parallax: 0,
-      respawnX: W + rand(2200, 3800),
-      bobAmp: 14, bobSpeed: 2.8,
-      draw: drawUfoCapy,
-    });
+    for (let i = 0; i < 2; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: W + 600 + i * 900, y: 44 + i * 18, vx: -9 - i * 2, parallax: 0,
+        respawnX: W + rand(2200, 3600),
+        draw: drawCapyBlimp,
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: W + 1400 + i * 700, y: 95 + i * 25, vx: -26 - i * 4, parallax: 0,
+        respawnX: W + rand(2000, 3400),
+        draw: drawUfoCapy,
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: W + 400 + i * 500, y: 88, vx: -8, parallax: 0,
+        respawnX: W + rand(1800, 2800),
+        draw: drawCableCarCapy,
+      });
+    }
+    for (let i = 0; i < 12; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: rand(0, W), y: rand(-20, 80),
+        vx: rand(-4, 4), vy: rand(18, 32),
+        parallax: 0,
+        confetti: true,
+        tint: confettiColors[i % confettiColors.length],
+        spinOff: rand(0, 6),
+        draw: drawCapyConfetti,
+      });
+    }
 
     // ── Billboards on rooftops in the FG skyline ────────────────────
-    // Each is a silly ad. Slow parallax, wraps around so they loop.
     const ADS = [
       'VOTE  CAPY', 'EAT  WATERMELON', 'STAY  WET', 'SOAK  YOUR  ROOTS',
       'NEW  RIVER  IPA', 'CAPY  4  MAYOR', 'TRUST  RIZZLE', 'BIG  TEETH',
       'HOT  TUB  WKLY', 'BLORBO  4  PRES', 'CAPY  CASINO', 'I  ♥  HAY',
+      'NAP  APPROVED', 'CHONK  ENERGY', 'WET  DOG  VIBES', 'MELON  KING',
     ];
-    const BILL_SPACING = 520;
-    for (let i = 0; i < 8; i++) {
+    const BILL_SPACING = 480;
+    for (let i = 0; i < 12; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 200 + i * BILL_SPACING,
-        y: GROUND_Y - 110 - (i % 3) * 22,
+        y: GROUND_Y - 82 - (i % 4) * 26,
         parallax: 0.55,
-        wrap: BILL_SPACING * 4,
+        wrap: BILL_SPACING * 5,
         text: ADS[i % ADS.length],
-        accent: ['#ff5a8a', '#ffd24a', '#a8e6ff', '#ff8a3c'][i % 4],
+        accent: billAccents[i % billAccents.length],
         draw: drawCapyBillboard,
       });
     }
 
-    // ── Window NPC capys peeking out of buildings ───────────────────
-    // Many of them, placed deterministically in the fg skyline.
-    const WIN_SPACING = 130;
-    for (let i = 0; i < 18; i++) {
+    const WIN_SPACING = 100;
+    for (let i = 0; i < 36; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
-        x: -60 + i * WIN_SPACING + (i * 71) % 80,
-        y: GROUND_Y - 40 - (i % 5) * 22,
+        x: -80 + i * WIN_SPACING + (i * 71) % 70,
+        y: GROUND_Y - 38 - (i % 6) * 20,
         parallax: 0.55,
-        wrap: WIN_SPACING * 9,
-        wave: (i * 13) % 17 < 8,
+        wrap: WIN_SPACING * 14,
+        wave: (i * 13) % 17 < 9,
+        blinds: i % 3 !== 2,
+        blindOff: (i * 0.37) % (Math.PI * 2),
+        hatType: i % 5 === 0 ? ['party', 'fd', 'melon', 'flower'][i % 4] : undefined,
         draw: drawWindowCapy,
       });
     }
 
-    // ── Rooftop sign-holders — protesters / cheerleaders for Rizzle ─
-    const ROOF_SPACING = 360;
-    const ROOF_TEXTS = ['GO  RIZZLE', 'PUT  IT  OUT', 'HERO', 'WE  ♥  CAPY', 'SAVE  US', 'MORE  WATER', 'SPLASH'];
-    for (let i = 0; i < 6; i++) {
+    const ROOF_SPACING = 300;
+    const ROOF_TEXTS = [
+      'GO  RIZZLE', 'PUT  IT  OUT', 'HERO', 'WE  ♥  CAPY', 'SAVE  US',
+      'MORE  WATER', 'SPLASH', 'CAPY  FD', 'HONK  HONK', 'SOAK  CITY',
+    ];
+    for (let i = 0; i < 10; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
-        x: 380 + i * ROOF_SPACING,
-        y: GROUND_Y - 90,
+        x: 320 + i * ROOF_SPACING,
+        y: GROUND_Y - 88 - (i % 2) * 8,
         parallax: 0.55,
-        wrap: ROOF_SPACING * 5,
+        wrap: ROOF_SPACING * 6,
         text: ROOF_TEXTS[i % ROOF_TEXTS.length],
         accent: '#fff7e0',
         draw: drawRooftopCheerCapy,
       });
     }
 
-    // ── Hot-tub capys — chilling in a rooftop hot tub ───────────────
-    Cosmetics.add({
-      layer: 'skylineFg',
-      x: 800, y: GROUND_Y - 105,
-      parallax: 0.55, wrap: 2400,
-      draw: drawHotTubCapys,
-    });
-    Cosmetics.add({
-      layer: 'skylineFg',
-      x: 2200, y: GROUND_Y - 95,
-      parallax: 0.55, wrap: 2400,
-      draw: drawHotTubCapys,
-    });
+    const ESC_SPACING = 280;
+    for (let i = 0; i < 8; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: 500 + i * ESC_SPACING,
+        y: GROUND_Y - 72,
+        parallax: 0.55,
+        wrap: ESC_SPACING * 5,
+        hat: i % 2 === 0 ? 'fd' : 'party',
+        draw: drawFireEscapeCapy,
+      });
+    }
 
-    // ── Sidewalk capys — many small NPCs at street level ────────────
-    const SIDE_SPACING = 260;
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 4; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: 650 + i * 580,
+        y: GROUND_Y - 102 - (i % 2) * 12,
+        parallax: 0.55, wrap: 2400,
+        draw: drawHotTubCapys,
+      });
+    }
+
+    const PARADE_SPACING = 720;
+    for (let i = 0; i < 4; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
-        x: 600 + i * SIDE_SPACING,
+        x: 400 + i * PARADE_SPACING,
+        y: GROUND_Y - 42,
+        parallax: 0.75,
+        wrap: PARADE_SPACING * 3,
+        inflatableColor: balloons[i % balloons.length],
+        hat: [season.hat, 'party', 'melon', 'fd'][i % 4] || 'party',
+        draw: drawParadeFloatCapy,
+      });
+    }
+
+    const SIDE_SPACING = 200;
+    for (let i = 0; i < 16; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: layoutOx * 0.6 + 450 + i * SIDE_SPACING,
         y: GROUND_Y - 16,
         parallax: 0.85,
-        wrap: SIDE_SPACING * 6,
-        pose: i % 4, // 0=wave 1=cheer 2=panic 3=skate
+        wrap: SIDE_SPACING * 8,
+        pose: i % 7,
         draw: drawSidewalkCapy,
       });
     }
-    // The KOOL-AID capy — bursts through a wall on the sidewalk occasionally.
-    Cosmetics.add({
-      layer: 'sidewalk',
-      x: 1600, y: GROUND_Y - 28,
-      parallax: 0.85, wrap: 3600,
-      draw: drawKoolAidCapy,
-    });
+    const MELON_SPACING = 480;
+    for (let i = 0; i < 5; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 900 + i * MELON_SPACING,
+        y: GROUND_Y - 20,
+        parallax: 0.85,
+        wrap: MELON_SPACING * 4,
+        draw: drawMelonCartCapy,
+      });
+    }
+    for (let i = 0; i < 3; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 1200 + i * 900,
+        y: GROUND_Y - 26,
+        parallax: 0.85, wrap: 2800,
+        draw: drawKoolAidCapy,
+      });
+    }
+    for (let i = 0; i < 4; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 700 + i * 650,
+        y: GROUND_Y - 18,
+        parallax: 0.85,
+        wrap: 2600,
+        draw: drawPaparazziCapy,
+      });
+    }
 
-    // ── Floating embers — drift upward continuously, atmospheric only ────
-    // No parallax, no wrap — they respawn at the bottom on their own.
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 22; i++) {
       Cosmetics.add({
         layer: 'farBg',
-        x: rand(0, W), y: rand(GROUND_Y - 200, GROUND_Y),
-        vx: rand(-6, 6), vy: rand(-40, -20),
+        x: rand(0, W), y: rand(GROUND_Y - 220, GROUND_Y),
+        vx: rand(-8, 8), vy: rand(-48, -18),
         parallax: 0,
-        emberKind: i % 3, // small/medium/large
-        emberColor: ['#ff8a3c', '#ffd24a', '#ff5a3c'][i % 3],
+        emberKind: i % 3,
+        emberColor: ['#ff8a3c', '#ffd24a', '#ff5a3c', '#8c6bff'][i % 4],
         draw: drawFloatingEmber,
-        respawnX: NaN, // signal "respawn within bounds"
+        respawnX: NaN,
         ember: true,
       });
     }
 
-    // ── Rizzle fan billboard — full-bleed mascot poster, plural ──────────
-    const RIZZLE_SPACING = 1300;
-    for (let i = 0; i < 3; i++) {
+    const RIZZLE_SPACING = 1100;
+    for (let i = 0; i < 5; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
-        x: 900 + i * RIZZLE_SPACING,
-        y: GROUND_Y - 130 - (i % 2) * 16,
-        parallax: 0.55, wrap: RIZZLE_SPACING * 2,
+        x: 750 + i * RIZZLE_SPACING,
+        y: GROUND_Y - 128 - (i % 3) * 14,
+        parallax: 0.55, wrap: RIZZLE_SPACING * 3,
         draw: drawRizzleFanBillboard,
+      });
+    }
+
+    // ── Pass 2: neon rooftops, balcony parties, searchlights ─────────
+    const NEON_SPACING = 400;
+    const NEON_MSGS = ['CAPY SPA', 'SOAK BAR', 'RIZZLE FM', 'CHONK HQ', 'WET DOG'];
+    for (let i = 0; i < 8; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: 360 + i * NEON_SPACING,
+        y: GROUND_Y - 178 - (i % 3) * 18,
+        parallax: 0.55,
+        wrap: NEON_SPACING * 5,
+        text: NEON_MSGS[i % NEON_MSGS.length],
+        palette: [neonPair, [neonPair[1], season.accent], [season.accent, neonPair[0]]][i % 3],
+        draw: drawNeonRooftopSign,
+      });
+    }
+    const BALCONY_SPACING = 240;
+    for (let i = 0; i < 12; i++) {
+      Cosmetics.add({
+        layer: 'skylineFg',
+        x: 180 + i * BALCONY_SPACING,
+        y: GROUND_Y - 52 - (i % 4) * 16,
+        parallax: 0.55,
+        wrap: BALCONY_SPACING * 8,
+        draw: drawBalconyParty,
+      });
+    }
+    for (let i = 0; i < 4; i++) {
+      Cosmetics.add({
+        layer: 'skylineBg',
+        x: 400 + i * 700,
+        y: GROUND_Y - 160 - i * 20,
+        parallax: 0.25,
+        wrap: 2800,
+        spinOff: rand(0, Math.PI * 2),
+        draw: drawSearchlightSweep,
+      });
+    }
+
+    // ── Pass 3: street-level capy life (hydrants, manholes, puddles) ─
+    const HYDRANT_SPACING = 340;
+    for (let i = 0; i < 7; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 300 + i * HYDRANT_SPACING,
+        y: GROUND_Y - 12,
+        parallax: 0.9,
+        wrap: HYDRANT_SPACING * 5,
+        draw: drawHydrantCapy,
+      });
+    }
+    const HOLE_SPACING = 420;
+    for (let i = 0; i < 6; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 550 + i * HOLE_SPACING,
+        y: GROUND_Y - 4,
+        parallax: 0.9,
+        wrap: HOLE_SPACING * 4,
+        draw: drawManholeCapy,
+      });
+    }
+    for (let i = 0; i < 8; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 200 + i * 280,
+        y: GROUND_Y + 2,
+        parallax: 0.88,
+        wrap: 2240,
+        draw: drawPuddleReflection,
+      });
+    }
+    for (let i = 0; i < 6; i++) {
+      Cosmetics.add({
+        layer: 'sidewalk',
+        x: 480 + i * 360,
+        y: GROUND_Y - 2,
+        parallax: 0.88,
+        wrap: 2160,
+        draw: drawChalkCapyArt,
+      });
+    }
+
+    // ── Pass 4: sky spectacle (shooting capys, orbiters) ──────────────
+    for (let i = 0; i < 3; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: W + rand(200, 600),
+        y: rand(40, 120),
+        vx: -180 - i * 40,
+        vy: rand(20, 50),
+        parallax: 0,
+        shootStar: true,
+        draw: drawShootingCapyStar,
+      });
+    }
+    for (let i = 0; i < 5; i++) {
+      Cosmetics.add({
+        layer: 'sky',
+        x: rand(100, W - 100),
+        y: rand(60, 140),
+        vx: 0,
+        parallax: 0,
+        orbitR: rand(18, 36),
+        hatType: ['party', 'melon', 'fd'][i % 3],
+        draw: drawOrbitMiniCapy,
+      });
+    }
+
+    // ── Pass 5: mega capy skyscrapers (wide cosmetic landmarks) ───────
+    const MEGA_SPACING = 2000;
+    for (let i = 0; i < 4; i++) {
+      Cosmetics.add({
+        layer: 'skylineBg',
+        x: 400 + i * MEGA_SPACING,
+        y: GROUND_Y - 12,
+        parallax: 0.12,
+        wrap: MEGA_SPACING * 2,
+        megaW: 520 + (i % 2) * 80,
+        megaSeed: 1000 + i * 77,
+        draw: drawMegaCapyTowerCosmetic,
       });
     }
   }
@@ -506,7 +935,151 @@
       ctx.lineTo(cx + s * 0.06, cy + s * 0.45);
     }
     ctx.stroke();
-    if (opts.hat) opts.hat(cx, cy, s);
+    if (opts.hatType) drawCapyHatPreset(cx, cy, s, opts.hatType);
+    else if (opts.hat) opts.hat(cx, cy, s);
+    ctx.restore();
+  }
+
+  function drawCapyHatPreset(cx, cy, s, type) {
+    const o = '#1a0f3a';
+    ctx.save();
+    if (type === 'fd') {
+      ctx.fillStyle = '#d94028';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - s * 0.72, s * 0.95, s * 0.28, 0, Math.PI, 2 * Math.PI);
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, s * 0.12);
+      ctx.strokeStyle = o;
+      ctx.stroke();
+      ctx.fillRect(cx - s * 0.9, cy - s * 0.72, s * 1.8, 3);
+      ctx.strokeRect(cx - s * 0.9, cy - s * 0.72, s * 1.8, 3);
+    } else if (type === 'party') {
+      ctx.fillStyle = '#ff5a8a';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - s * 1.35);
+      for (let i = 0; i < 5; i++) {
+        const a = (i * Math.PI * 2) / 5 - Math.PI / 2;
+        ctx.lineTo(cx + Math.cos(a) * s * 0.55, cy - s * 1.05 + Math.sin(a) * s * 0.55);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ffd24a';
+      ctx.fillRect(cx - s * 0.08, cy - s * 1.5, s * 0.16, s * 0.35);
+    } else if (type === 'melon') {
+      ctx.fillStyle = '#3d8f4a';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - s * 0.95, s * 0.75, s * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#2a6a35';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - s * 1.45);
+      ctx.quadraticCurveTo(cx + s * 0.2, cy - s * 1.1, cx, cy - s * 0.7);
+      ctx.stroke();
+    } else if (type === 'chef') {
+      ctx.fillStyle = '#fff7e0';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - s * 0.88, s * 0.7, s * 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#1a0f3a';
+      ctx.fillRect(cx - s * 0.55, cy - s * 0.95, s * 1.1, s * 0.12);
+    } else if (type === 'sunglasses') {
+      ctx.fillStyle = '#1a0f3a';
+      ctx.fillRect(cx - s * 0.62, cy - s * 0.12, s * 0.5, s * 0.22);
+      ctx.fillRect(cx + s * 0.12, cy - s * 0.12, s * 0.5, s * 0.22);
+      ctx.strokeStyle = '#ffd24a';
+      ctx.lineWidth = Math.max(1, s * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.12, cy - s * 0.02);
+      ctx.lineTo(cx + s * 0.12, cy - s * 0.02);
+      ctx.stroke();
+    } else if (type === 'flower') {
+      ctx.fillStyle = '#ff8a8a';
+      for (let i = 0; i < 5; i++) {
+        const a = (i * Math.PI * 2) / 5 - Math.PI / 2;
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(a) * s * 0.55, cy - s * 1.0 + Math.sin(a) * s * 0.35, s * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#ffd24a';
+      ctx.beginPath();
+      ctx.arc(cx, cy - s * 1.0, s * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Seasonal sidewalk props — tied to state.costumeSeason, never gameplay.
+  function drawSeasonProp(x, y, season, pose) {
+    if (!season || !season.prop) return;
+    ctx.save();
+    const prop = season.prop;
+    if (prop === 'icecream') {
+      ctx.fillStyle = '#ffd24a';
+      ctx.fillRect(x + 10, y - 2, 4, 10);
+      ctx.fillStyle = '#ff8a8a';
+      ctx.beginPath();
+      ctx.arc(x + 12, y - 4, 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (prop === 'scarf') {
+      ctx.strokeStyle = season.accent;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y - 2);
+      ctx.quadraticCurveTo(x, y + 6, x + 10, y);
+      ctx.stroke();
+      ctx.fillStyle = '#fff7e0';
+      ctx.beginPath();
+      ctx.arc(x + 12, y + 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (prop === 'bouquet') {
+      ctx.fillStyle = '#ff8a8a';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(x + 12 + i * 2, y - 6 - i, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#3d8f4a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 14, y); ctx.lineTo(x + 14, y - 8);
+      ctx.stroke();
+    } else if (prop === 'leaves') {
+      const colors = ['#ff8a3c', '#ffd24a', '#d94028'];
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = colors[i % 3];
+        ctx.beginPath();
+        ctx.ellipse(x - 14 + i * 5, y + 10, 4, 2, i * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (prop === 'glowsticks') {
+      const t = performance.now() / 200;
+      const colors = ['#ff5a8a', '#4ec5ff', '#ffd24a'];
+      for (let i = 0; i < 2; i++) {
+        ctx.strokeStyle = colors[(i + Math.floor(t)) % 3];
+        ctx.lineWidth = 2.5;
+        ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t + i);
+        ctx.beginPath();
+        ctx.moveTo(x + 10 + i * 6, y);
+        ctx.lineTo(x + 16 + i * 6, y - 12 - Math.sin(t + i) * 3);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    } else if (prop === 'badge') {
+      ctx.fillStyle = '#ffd24a';
+      ctx.beginPath();
+      ctx.arc(x - 14, y - 4, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#1a0f3a';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#1a0f3a';
+      ctx.font = 'bold 5px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('26', x - 14, y - 2);
+    }
     ctx.restore();
   }
 
@@ -590,28 +1163,57 @@
 
   function drawWindowCapy(c) {
     const x = c.x, y = c.y;
+    const blinds = c.blinds !== false;
+    const open = 0.42 + 0.58 * Math.sin(c.phase * 0.85 + (c.blindOff || 0));
     ctx.save();
-    // window frame
     ctx.fillStyle = '#1a0f3a';
     rrect(x - 14, y - 14, 28, 28, 2); ctx.fill();
-    // warm interior glow
     const glow = ctx.createRadialGradient(x, y, 2, x, y, 16);
     glow.addColorStop(0, 'rgba(255, 200, 120, 0.95)');
-    glow.addColorStop(1, 'rgba(255, 200, 120, 0.3)');
+    glow.addColorStop(1, 'rgba(255, 200, 120, 0.25)');
     ctx.fillStyle = glow;
     rrect(x - 12, y - 12, 24, 24, 2); ctx.fill();
-    // capy peeking
-    drawTinyCapy(x, y + 2, 6, { mouth: 'smile' });
-    // wave (some windows)
-    if (c.wave) {
-      const wave = Math.sin(c.phase * 3) * 0.3;
-      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.6;
+
+    if (blinds) {
+      // Capy shadow on the wall behind the blinds.
+      ctx.fillStyle = 'rgba(26, 15, 58, 0.72)';
       ctx.beginPath();
-      ctx.moveTo(x + 6, y + 4);
-      ctx.lineTo(x + 12 + wave * 3, y - 4 + Math.abs(wave) * 3);
-      ctx.stroke();
+      ctx.ellipse(x + 1, y + 5, 7, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x - 7, y - 5, 3.5, 3, -0.2, 0, Math.PI * 2);
+      ctx.ellipse(x + 9, y - 5, 3.5, 3, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      for (let sy = y - 11; sy <= y + 10; sy += 3.5) {
+        const lift = Math.sin(c.phase * 0.85 + sy * 0.15) * open * 2.5;
+        ctx.fillStyle = 'rgba(26, 15, 58, 0.88)';
+        ctx.fillRect(x - 12, sy + lift, 24, 2.2);
+      }
+      if (open > 0.52) {
+        drawTinyCapy(x, y + 2, 5.5, {
+          mouth: open > 0.75 ? 'o' : 'smile',
+          hatType: c.hatType,
+        });
+        if (c.wave && open > 0.6) {
+          const wave = Math.sin(c.phase * 3) * 0.3;
+          ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(x + 5, y + 3);
+          ctx.lineTo(x + 11 + wave * 3, y - 5);
+          ctx.stroke();
+        }
+      }
+    } else {
+      drawTinyCapy(x, y + 2, 6, { mouth: 'smile', hatType: c.hatType });
+      if (c.wave) {
+        const wave = Math.sin(c.phase * 3) * 0.3;
+        ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(x + 6, y + 4);
+        ctx.lineTo(x + 12 + wave * 3, y - 4 + Math.abs(wave) * 3);
+        ctx.stroke();
+      }
     }
-    // window cross
     ctx.strokeStyle = 'rgba(26, 15, 58, 0.6)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -646,39 +1248,64 @@
     ctx.restore();
   }
 
+  function drawOutlinedLabel(text, x, y, fill, font) {
+    ctx.font = font;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#fff7e0';
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = fill;
+    ctx.fillText(text, x, y);
+  }
+
+  function fitFontSize(text, maxW, basePx, minPx) {
+    let size = basePx;
+    ctx.font = 'bold ' + size + 'px ui-rounded, Nunito, system-ui, sans-serif';
+    while (size > minPx && ctx.measureText(text).width > maxW) {
+      size -= 1;
+      ctx.font = 'bold ' + size + 'px ui-rounded, Nunito, system-ui, sans-serif';
+    }
+    return size;
+  }
+
   function drawCapyBillboard(c) {
     const x = c.x, y = c.y;
+    const label = (c.text && String(c.text).trim()) || 'CAPY  RUSH';
+    const bw = 168;
+    const bh = 46;
+    const bx = x - bw / 2;
+    const by = y - 38;
     ctx.save();
-    // pole
     ctx.fillStyle = '#1a0f3a';
-    ctx.fillRect(x - 2, y, 4, 60);
-    // board background
+    ctx.fillRect(x - 2, y, 4, 62);
     ctx.fillStyle = c.accent || '#ffd24a';
-    rrect(x - 70, y - 38, 140, 44, 6); ctx.fill();
+    rrect(bx, by, bw, bh, 6);
+    ctx.fill();
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = '#1a0f3a';
     ctx.stroke();
-    // tiny capy mascot on the board
-    drawTinyCapy(x - 50, y - 16, 10, { mouth: 'smile' });
-    // ad text
-    ctx.fillStyle = '#1a0f3a';
-    ctx.font = 'bold 13px ui-rounded, Nunito, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(c.text, x + 14, y - 12);
-    // small subtitle line
-    ctx.font = 'bold 8px ui-rounded, Nunito, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(26, 15, 58, 0.7)';
-    ctx.fillText('-- CAPY CO --', x + 14, y - 1);
-    // little blinker on top
+    drawTinyCapy(bx + 20, by + bh / 2, 8, { mouth: 'smile', hatType: 'party' });
+    const textPad = 6;
+    const textX = bx + 40;
+    const textW = bw - 44;
+    const textH = bh - 8;
+    ctx.fillStyle = 'rgba(26, 15, 58, 0.82)';
+    rrect(textX - textPad, by + 4, textW + textPad * 2, textH, 4);
+    ctx.fill();
+    const headSize = fitFontSize(label, textW, 13, 9);
+    drawOutlinedLabel(label, textX, by + 17, '#fff7e0', 'bold ' + headSize + 'px ui-rounded, Nunito, system-ui, sans-serif');
+    drawOutlinedLabel('-- CAPY CO --', textX, by + 32, 'rgba(255, 247, 224, 0.75)', 'bold 8px ui-rounded, Nunito, system-ui, sans-serif');
     const blink = (performance.now() / 500 + x * 0.01) % 2 < 1;
     ctx.fillStyle = blink ? '#ff5a3c' : 'rgba(255,90,60,0.3)';
-    ctx.beginPath(); ctx.arc(x - 60, y - 40, 3, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 60, y - 40, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx + 4, by + 4, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx + bw - 4, by + 4, 3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
   function drawSidewalkCapy(c) {
     const x = c.x, y = c.y;
+    const season = getCostumeSeason();
     ctx.save();
     // body (small oval)
     ctx.fillStyle = '#b4884f';
@@ -687,10 +1314,16 @@
     ctx.fill();
     ctx.lineWidth = 1.6; ctx.strokeStyle = '#1a0f3a';
     ctx.stroke();
-    // head
-    drawTinyCapy(x - 10, y - 6, 7, {
-      mouth: c.pose === 2 ? 'o' : 'smile',
-    });
+    // head (pose 6 draws head after newspaper)
+    const headOpts = {
+      mouth: (c.pose === 2 || c.pose === 6) ? 'o' : 'smile',
+    };
+    if (c.pose === 4) headOpts.hatType = 'sunglasses';
+    else if (season.hat && c.pose !== 5) headOpts.hatType = season.hat;
+    if (c.pose !== 6) {
+      drawTinyCapy(x - 10, y - 6, 7, headOpts);
+    }
+    drawSeasonProp(x, y, season, c.pose);
     // legs
     ctx.fillStyle = '#1a0f3a';
     ctx.fillRect(x - 6, y + 7, 2, 6);
@@ -725,8 +1358,42 @@
       ctx.beginPath();
       ctx.ellipse(x - 16, y - 14 + flail, 2, 3, 0, 0, Math.PI * 2);
       ctx.fill();
-    } else {
-      // skateboarding capy — leaning, with board + wheels
+    } else if (c.pose === 4) {
+      // selfie — phone + flash
+      ctx.fillStyle = '#1a0f3a';
+      rrect(x + 8, y - 8, 8, 12, 2); ctx.fill();
+      const flash = Math.sin(c.phase * 10) > 0.85;
+      if (flash) {
+        ctx.fillStyle = 'rgba(255, 247, 224, 0.9)';
+        ctx.beginPath();
+        ctx.arc(x + 12, y - 14, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (c.pose === 5) {
+      // tuba busker
+      ctx.fillStyle = '#ffd24a';
+      ctx.beginPath();
+      ctx.ellipse(x + 14, y + 2, 10, 14, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2; ctx.stroke();
+      const toot = Math.sin(c.phase * 7) * 2;
+      ctx.fillStyle = 'rgba(255, 247, 224, 0.5)';
+      for (let n = 0; n < 3; n++) {
+        ctx.beginPath();
+        ctx.arc(x + 22 + n * 5, y - 8 - toot, 3 + n, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (c.pose === 6) {
+      // newspaper capy
+      ctx.fillStyle = '#fff7e0';
+      rrect(x - 14, y - 4, 28, 18, 2); ctx.fill();
+      ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = '#1a0f3a';
+      ctx.font = 'bold 7px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('CAPY TIMES', x, y + 6);
+      drawTinyCapy(x, y - 12, 7, { mouth: 'o', hatType: 'fd' });
+    } else if (c.pose === 3) {
       ctx.fillStyle = '#1a0f3a';
       rrect(x - 14, y + 11, 28, 3, 1.5); ctx.fill();
       ctx.beginPath();
@@ -1027,6 +1694,549 @@
     ctx.restore();
   }
 
+  // Building mural — giant painted capy on a brick wall.
+  function drawMuralCapy(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    ctx.fillStyle = '#4a3555';
+    rrect(x - 48, y - 52, 96, 72, 4); ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2; ctx.stroke();
+    // brick lines
+    ctx.strokeStyle = 'rgba(26, 15, 58, 0.25)'; ctx.lineWidth = 1;
+    for (let row = 0; row < 5; row++) {
+      const ry = y - 48 + row * 14;
+      ctx.beginPath();
+      ctx.moveTo(x - 44, ry); ctx.lineTo(x + 44, ry);
+      ctx.stroke();
+    }
+    // painted capy — huge flat style
+    ctx.fillStyle = '#c9694e';
+    ctx.beginPath();
+    ctx.ellipse(x, y - 8, 34, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2.5; ctx.stroke();
+    drawTinyCapy(x, y - 20, 12, { mouth: 'smile', hatType: 'melon' });
+    ctx.fillStyle = 'rgba(26, 15, 58, 0.72)';
+    rrect(x - 44, y + 12, 88, 16, 3);
+    ctx.fill();
+    ctx.fillStyle = '#fff7e0';
+    ctx.font = 'bold 9px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(c.tagline || 'WET  IS  BEST', x, y + 20);
+    ctx.restore();
+  }
+
+  // Parade float — flatbed truck hauling a giant inflatable capy.
+  function drawParadeFloatCapy(c) {
+    const x = c.x, y = c.y;
+    const wob = Math.sin(c.phase * 1.2) * 2;
+    ctx.save();
+    // wheels + chassis
+    ctx.fillStyle = '#1a0f3a';
+    ctx.beginPath();
+    ctx.arc(x - 28, y + 18, 7, 0, Math.PI * 2);
+    ctx.arc(x + 28, y + 18, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#d94028';
+    rrect(x - 42, y + 4, 84, 14, 4); ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2; ctx.stroke();
+    // giant inflatable
+    ctx.fillStyle = c.inflatableColor || '#ff8a8a';
+    ctx.beginPath();
+    ctx.ellipse(x, y - 22 + wob, 38, 34, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawTinyCapy(x, y - 28 + wob, 12, { mouth: 'o', hatType: c.hat || 'party' });
+    // confetti streamers
+    const colors = ['#ffd24a', '#4ec5ff', '#ff5a8a'];
+    for (let i = 0; i < 5; i++) {
+      const ph = c.phase * 3 + i;
+      ctx.strokeStyle = colors[i % 3];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 30 + i * 12, y - 50 + wob);
+      ctx.lineTo(x - 34 + i * 12 + Math.sin(ph) * 4, y - 62 + Math.cos(ph) * 3);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Fire escape with a capy climbing down (or up).
+  function drawFireEscapeCapy(c) {
+    const x = c.x, y = c.y;
+    const climb = Math.sin(c.phase * 0.9) * 6;
+    ctx.save();
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 2.5;
+    // ladder rails
+    ctx.beginPath();
+    ctx.moveTo(x - 18, y - 40); ctx.lineTo(x - 18, y + 20);
+    ctx.moveTo(x + 18, y - 40); ctx.lineTo(x + 18, y + 20);
+    ctx.stroke();
+    for (let r = 0; r < 5; r++) {
+      const ry = y - 36 + r * 12;
+      ctx.beginPath();
+      ctx.moveTo(x - 18, ry); ctx.lineTo(x + 18, ry);
+      ctx.stroke();
+    }
+    // platform
+    ctx.fillStyle = '#5a4a6a';
+    rrect(x - 22, y - 8, 44, 6, 2); ctx.fill();
+    ctx.stroke();
+    drawTinyCapy(x, y - 18 + climb, 7, {
+      mouth: 'o',
+      hatType: c.hat || 'fd',
+    });
+    ctx.restore();
+  }
+
+  // Sidewalk melon cart — capy vendor with watermelons.
+  function drawMelonCartCapy(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    ctx.fillStyle = '#8c6730';
+    rrect(x - 22, y + 2, 44, 10, 3); ctx.fill();
+    ctx.strokeStyle = '#1a0f3a'; ctx.lineWidth = 2; ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = '#3d8f4a';
+      ctx.beginPath();
+      ctx.ellipse(x - 12 + i * 12, y - 2, 8, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    drawTinyCapy(x - 30, y - 2, 7, { mouth: 'smile', hatType: 'chef' });
+    ctx.fillStyle = 'rgba(26, 15, 58, 0.75)';
+    rrect(x - 4, y - 22, 52, 12, 3);
+    ctx.fill();
+    ctx.fillStyle = '#fff7e0';
+    ctx.font = 'bold 8px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('MELON  $2', x + 22, y - 16);
+    ctx.restore();
+  }
+
+  // Cable car with capy passengers peeking out.
+  function drawCableCarCapy(c) {
+    const x = c.x, y = c.y + Math.sin(c.phase * 0.7) * 4;
+    ctx.save();
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 40, y - 30); ctx.lineTo(x + 40, y - 30);
+    ctx.stroke();
+    ctx.fillStyle = '#d94028';
+    rrect(x - 32, y - 22, 64, 28, 6); ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#4ec5ff';
+    rrect(x - 28, y - 18, 56, 14, 4); ctx.fill();
+    drawTinyCapy(x - 14, y - 10, 5, { mouth: 'smile' });
+    drawTinyCapy(x, y - 10, 5, { mouth: 'o', hatType: 'sunglasses' });
+    drawTinyCapy(x + 14, y - 10, 5, { mouth: 'smile', hatType: 'party' });
+    ctx.restore();
+  }
+
+  // Distant colossal capy statue silhouette.
+  function drawGiantCapyStatue(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#2a1848';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 55, 70, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(x - 70, y + 50, 140, 12);
+    ctx.globalAlpha = 0.55;
+    ctx.font = 'bold 11px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 247, 224, 0.5)';
+    ctx.fillText('CAPY  MONUMENT', x, y - 85);
+    ctx.restore();
+  }
+
+  // Paparazzi sidewalk cluster — camera flashes.
+  function drawPaparazziCapy(c) {
+    const x = c.x, y = c.y;
+    const flash = Math.sin(c.phase * 8) > 0.6;
+    ctx.save();
+    for (let i = 0; i < 3; i++) {
+      const ox = x - 20 + i * 20;
+      drawTinyCapy(ox, y - 6, 6, { mouth: 'o', hatType: i === 1 ? 'sunglasses' : undefined });
+      ctx.fillStyle = '#1a0f3a';
+      rrect(ox + 4, y + 2, 10, 6, 2); ctx.fill();
+    }
+    if (flash) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(255, 247, 224, 0.85)';
+      ctx.beginPath();
+      ctx.arc(x, y - 20, 28, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Sky confetti — tiny capy-shaped paper bits drifting down.
+  function drawCapyConfetti(c) {
+    const x = c.x, y = c.y;
+    const spin = c.phase * 2 + c.spinOff;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(spin);
+    ctx.fillStyle = c.tint || '#ffd24a';
+    ctx.globalAlpha = 0.75;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 5, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(-2, -1, 1.5, 1);
+    ctx.fillRect(1, -1, 1.5, 1);
+    ctx.restore();
+  }
+
+  const SIGN_ICON_W = 32;
+
+  // Icon column + text column — keeps mascots off the lettering.
+  function drawIconTextPlate(cx, cy, w, h, plateFill) {
+    rrect(cx - w / 2, cy - h / 2, w, h, 5);
+    ctx.fillStyle = plateFill || '#150827';
+    ctx.fill();
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 247, 224, 0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - w / 2 + SIGN_ICON_W, cy - h / 2 + 3);
+    ctx.lineTo(cx - w / 2 + SIGN_ICON_W, cy + h / 2 - 3);
+    ctx.stroke();
+  }
+
+  function signTextColumnCenter(cx, cy, w) {
+    const bx = cx - w / 2;
+    return bx + SIGN_ICON_W + (w - SIGN_ICON_W) / 2;
+  }
+
+  function signIconCenter(cx, cy, w) {
+    return cx - w / 2 + SIGN_ICON_W / 2;
+  }
+
+  // Shared neon text — flickering glow for rooftops & signs.
+  function drawNeonText(cx, cy, text, seed, colors, opts) {
+    colors = colors || ['#ff5a8a', '#ffd24a'];
+    opts = opts || {};
+    const flick = 0.65 + 0.35 * Math.abs(Math.sin(performance.now() / 90 + seed * 2.1));
+    const dim = (performance.now() / 350 + seed * 1.7) % 2 > 1.92;
+    ctx.save();
+    let fontPx = opts.fontPx || 11;
+    const maxW = opts.maxW;
+    if (maxW) fontPx = fitFontSize(text, maxW, fontPx, 7);
+    ctx.font = 'bold ' + fontPx + 'px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = opts.align || 'center';
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(text).width;
+    if (opts.backdrop) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(12, 6, 32, 0.9)';
+      rrect(cx - tw / 2 - 6, cy - fontPx * 0.55, tw + 12, fontPx + 6, 3);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = colors[0];
+    ctx.shadowBlur = 14 * flick;
+    ctx.fillStyle = dim ? 'rgba(90, 40, 120, 0.5)' : colors[0];
+    ctx.fillText(text, cx, cy);
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = dim ? 'rgba(40, 20, 60, 0.6)' : colors[1];
+    ctx.fillText(text, cx, cy + 1);
+    ctx.restore();
+  }
+
+  function drawNeonRooftopSign(c) {
+    const x = c.x, y = c.y;
+    const bw = 124;
+    const bh = 40;
+    const cy = y + 12;
+    ctx.save();
+    ctx.fillStyle = '#1a0f3a';
+    ctx.fillRect(x - 3, y, 6, 70);
+    const msgs = ['CAPY SPA', 'SOAK 24/7', 'RIZZLE FM', 'HOT TUB', 'CHONK HQ'];
+    const msg = (c.text && String(c.text).trim()) || msgs[Math.floor(c.phase) % msgs.length];
+    const pal = c.palette || ['#4ec5ff', '#a8e6ff'];
+    const textCx = signTextColumnCenter(x, cy, bw);
+    const textW = bw - SIGN_ICON_W - 10;
+    drawIconTextPlate(x, cy, bw, bh, '#150827');
+    drawTinyCapy(signIconCenter(x, cy, bw), cy + 1, 5.5, { mouth: 'smile', hatType: 'party' });
+    drawNeonText(textCx, cy + 1, msg, x * 0.01, pal, { backdrop: true, maxW: textW, fontPx: 10 });
+    ctx.restore();
+  }
+
+  function drawBalconyParty(c) {
+    const x = c.x, y = c.y;
+    const bob = Math.sin(c.phase * 2.5) * 2;
+    ctx.save();
+    ctx.fillStyle = '#3b2a7a';
+    rrect(x - 36, y, 72, 8, 3);
+    ctx.fill();
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      drawTinyCapy(x - 20 + i * 20, y - 8 + bob, 6, {
+        mouth: i === 1 ? 'o' : 'smile',
+        hatType: ['party', 'melon', 'sunglasses'][i],
+      });
+    }
+    const twinkle = (performance.now() / 200 + x) % 1;
+    for (let i = 0; i < 5; i++) {
+      const on = (i + twinkle * 5) % 5 < 2.5;
+      ctx.fillStyle = on ? '#ffd24a' : 'rgba(255,210,74,0.25)';
+      ctx.beginPath();
+      ctx.arc(x - 28 + i * 14, y - 16 + bob, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      if (i < 4) {
+        ctx.strokeStyle = 'rgba(255,247,224,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x - 28 + i * 14, y - 16 + bob);
+        ctx.lineTo(x - 14 + i * 14, y - 16 + bob);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawSearchlightSweep(c) {
+    const x = c.x, y = c.y;
+    const ang = c.phase * 0.45 + (c.spinOff || 0);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const beam = ctx.createLinearGradient(x, y, x + Math.cos(ang) * 220, y + Math.sin(ang) * 180);
+    beam.addColorStop(0, 'rgba(255, 247, 224, 0.35)');
+    beam.addColorStop(1, 'rgba(168, 230, 255, 0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(ang - 0.22) * 240, y + Math.sin(ang - 0.22) * 200);
+    ctx.lineTo(x + Math.cos(ang + 0.22) * 240, y + Math.sin(ang + 0.22) * 200);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawShootingCapyStar(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const tail = ctx.createLinearGradient(x, y, x + 70, y + 20);
+    tail.addColorStop(0, 'rgba(255, 247, 224, 0.9)');
+    tail.addColorStop(1, 'rgba(168, 230, 255, 0)');
+    ctx.strokeStyle = tail;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x - 55, y - 8);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    drawTinyCapy(x, y, 5, { mouth: 'o' });
+    ctx.restore();
+  }
+
+  function drawHydrantCapy(c) {
+    const x = c.x, y = c.y;
+    const squirt = Math.sin(c.phase * 6) * 0.5 + 0.5;
+    ctx.save();
+    ctx.fillStyle = '#d94028';
+    rrect(x - 8, y - 4, 16, 18, 4);
+    ctx.fill();
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#ffd24a';
+    ctx.fillRect(x - 10, y - 8, 20, 5);
+    drawTinyCapy(x, y - 14, 7, { mouth: 'smile', hatType: 'fd' });
+    if (squirt > 0.4) {
+      ctx.strokeStyle = 'rgba(78, 197, 255, 0.75)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x + 6, y - 6);
+        ctx.quadraticCurveTo(x + 18 + i * 4, y - 20 - i * 3, x + 24 + i * 5, y - 8);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawManholeCapy(c) {
+    const x = c.x, y = c.y;
+    const slide = (Math.sin(c.phase * 0.8) * 0.5 + 0.5) * 10;
+    ctx.save();
+    ctx.fillStyle = '#1a0f3a';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 4, 16, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#4a3555';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y + 4);
+      ctx.lineTo(x + Math.cos(a) * 14, y + 4 + Math.sin(a) * 5);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#2a1848';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 4 - slide, 14, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    drawTinyCapy(x, y - 6 - slide * 0.3, 6, { mouth: 'o' });
+    ctx.restore();
+  }
+
+  function drawPuddleReflection(c) {
+    const x = c.x, y = c.y;
+    const ripple = Math.sin(c.phase * 2) * 1.5;
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#4ec5ff';
+    ctx.beginPath();
+    ctx.ellipse(x, y + ripple, 22, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.4;
+    ctx.scale(1, -0.65);
+    drawTinyCapy(x, -(y + 8) + ripple, 5, { mouth: 'smile' });
+    ctx.restore();
+  }
+
+  function drawChalkCapyArt(c) {
+    const x = c.x, y = c.y;
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.strokeStyle = '#fff7e0';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 2]);
+    ctx.beginPath();
+    ctx.ellipse(x, y, 16, 11, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    drawTinyCapy(x, y - 8, 7, { mouth: 'smile', color: 'rgba(255,247,224,0.85)' });
+    ctx.font = 'bold 8px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,247,224,0.6)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('♥  RIZZLE', x, y + 6);
+    ctx.restore();
+  }
+
+  function drawOrbitMiniCapy(c) {
+    const x = c.x + Math.cos(c.phase * 1.2) * (c.orbitR || 28);
+    const y = c.y + Math.sin(c.phase * 1.2) * (c.orbitR || 14);
+    ctx.save();
+    drawTinyCapy(x, y, 5, { mouth: 'smile', hatType: c.hatType });
+    ctx.restore();
+  }
+
+  // Boss-scale capy skyscraper — spans ~2–3 skyline tiles (cosmetic only).
+  function drawMegaCapyBuilding(anchorX, baseY, totalW, seed, opts) {
+    const scale = opts.scale || 1;
+    const w = totalW * scale;
+    const h = (220 + tileRand(seed, 2) * 100) * scale;
+    const top = baseY - h;
+    const cx = anchorX + w / 2;
+    const color = opts.color || '#2a1a5a';
+    const win = opts.windowColor || 'rgba(255, 200, 100, 0.55)';
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(anchorX + w * 0.06, baseY);
+    ctx.lineTo(anchorX + w * 0.94, baseY);
+    ctx.lineTo(anchorX + w * 0.82, top + h * 0.18);
+    ctx.lineTo(anchorX + w * 0.18, top + h * 0.18);
+    ctx.closePath();
+    ctx.fill();
+    const earW = w * 0.14;
+    const earH = h * 0.22;
+    ctx.beginPath();
+    ctx.ellipse(anchorX + w * 0.14, top + earH * 0.55, earW, earH, 0, 0, Math.PI * 2);
+    ctx.ellipse(anchorX + w * 0.86, top + earH * 0.55, earW, earH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const blink = Math.sin(performance.now() / 500 + seed) > 0.92;
+    ctx.fillStyle = win;
+    const eyeY = top + h * 0.38;
+    const eyeW = w * 0.14;
+    const eyeH = h * 0.08;
+    ctx.fillRect(cx - w * 0.22, eyeY, eyeW, eyeH);
+    ctx.fillRect(cx + w * 0.08, eyeY, eyeW, eyeH);
+    if (blink) {
+      ctx.fillStyle = color;
+      ctx.fillRect(cx - w * 0.22, eyeY + eyeH * 0.35, eyeW, eyeH * 0.3);
+      ctx.fillRect(cx + w * 0.08, eyeY + eyeH * 0.35, eyeW, eyeH * 0.3);
+    }
+    ctx.fillStyle = 'rgba(140, 103, 48, 0.55)';
+    rrect(cx - w * 0.12, top + h * 0.52, w * 0.24, h * 0.06, 4 * scale);
+    ctx.fill();
+    const neon = opts.neon || getCostumeSeason().neon || ['#ff5a8a', '#ffd24a'];
+    drawNeonText(cx, top + h * 0.08, 'MEGA  CAPY', seed, neon, { backdrop: true });
+    drawNeonText(cx, top + h * 0.16, 'SOAK  HQ', seed + 3, [neon[1], neon[0]], { backdrop: true });
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 5; col++) {
+        if (tileRand(seed, row * 10 + col) < 0.35) continue;
+        const wx = anchorX + w * 0.22 + col * (w * 0.11);
+        const wy = top + h * 0.62 + row * (h * 0.07);
+        if (tileRand(seed, wx + wy) > 0.55) {
+          drawProceduralBlindWindow(wx, wy, w * 0.06, h * 0.04, seed + wx);
+        } else {
+          ctx.fillStyle = win;
+          ctx.globalAlpha = 0.35 + tileRand(seed, wy) * 0.5;
+          ctx.fillRect(wx, wy, w * 0.05, h * 0.035);
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawMegaCapyTowerCosmetic(c) {
+    drawMegaCapyBuilding(c.x, GROUND_Y - 12, c.megaW || 520, c.megaSeed || 0, {
+      color: '#2a1a5a',
+      windowColor: 'rgba(255, 210, 120, 0.6)',
+    });
+  }
+
+  function drawMegaCapySkyline(scroll, period, baseY, seedOff, opts) {
+    const start = Math.floor(scroll / period) - 1;
+    const offset = -(scroll - start * period);
+    for (let i = 0; i < 3; i++) {
+      const idx = start + i;
+      if (tileRand(idx + seedOff, 66) < 0.48) continue;
+      drawMegaCapyBuilding(
+        offset + i * period + period * 0.04,
+        baseY,
+        period * 0.92,
+        idx + seedOff,
+        opts
+      );
+    }
+  }
+
+  function drawProceduralBlindWindow(wx, wy, ww, wh, seed) {
+    const open = 0.45 + 0.55 * Math.sin(performance.now() / 380 + seed * 8);
+    ctx.fillStyle = 'rgba(255, 200, 120, 0.35)';
+    ctx.fillRect(wx, wy, ww, wh);
+    ctx.fillStyle = 'rgba(10, 6, 35, 0.75)';
+    ctx.beginPath();
+    ctx.ellipse(wx + ww / 2, wy + wh / 2, ww * 0.75, wh * 0.65, 0, 0, Math.PI * 2);
+    ctx.fill();
+    for (let sy = wy; sy < wy + wh; sy += Math.max(1.5, wh * 0.35)) {
+      ctx.fillStyle = 'rgba(26, 15, 58, 0.92)';
+      ctx.fillRect(wx, sy + open * 1.2, ww, Math.max(1, wh * 0.22));
+    }
+  }
+
   // Procedural smoke plume — a stack of soft puffs that sway with phase
   // and fade out toward the top.
   function drawSmokeColumn(c) {
@@ -1113,6 +2323,20 @@
             c.vx = (Math.random() - 0.5) * 12;
             c.vy = -20 - Math.random() * 30;
           }
+        } else if (c.confetti) {
+          if (c.y > GROUND_Y + 30 || c.x < -50 || c.x > W + 50) {
+            c.x = Math.random() * W;
+            c.y = rand(-20, 50);
+            c.vx = rand(-5, 5);
+            c.vy = rand(16, 34);
+          }
+        } else if (c.shootStar) {
+          if (c.x < -120 || c.y > GROUND_Y - 40) {
+            c.x = W + rand(80, 400);
+            c.y = rand(30, 140);
+            c.vx = -rand(160, 240);
+            c.vy = rand(15, 55);
+          }
         } else if (c.wrap) {
           // tile-like: wrap around horizontally
           if (c.x < -c.wrap) c.x += c.wrap * 2;
@@ -1132,19 +2356,62 @@
   };
 
   // ═════════════════════════════════════════════════════════════════════
-  //   AUDIO
-  //   Lightweight WebAudio synthesis. One-shots only.
+  //   AUDIO — WebAudio SFX + procedural looped soundtrack
   // ═════════════════════════════════════════════════════════════════════
   let ac = null;
+  let masterBus = null;
+  let sfxBus = null;
+  let musicBus = null;
+  let musicMuted = false;
+  let musicStep = 0;
+  let musicNextAt = 0;
+
+  try { musicMuted = localStorage.getItem(MUTE_KEY) === '1'; } catch { musicMuted = false; }
+
   function audio() {
     if (!ac) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (AC) ac = new AC();
     }
+    if (ac && ac.state === 'suspended') ac.resume().catch(() => {});
     return ac;
   }
+
+  function initAudioBuses() {
+    const c = audio();
+    if (!c || masterBus) return;
+    masterBus = c.createGain();
+    sfxBus = c.createGain();
+    musicBus = c.createGain();
+    sfxBus.connect(masterBus);
+    musicBus.connect(masterBus);
+    masterBus.connect(c.destination);
+    applyAudioLevels();
+  }
+
+  function applyAudioLevels() {
+    const c = audio();
+    if (!c || !masterBus) return;
+    if (musicMuted) {
+      masterBus.gain.setTargetAtTime(0, c.currentTime, 0.04);
+      return;
+    }
+    masterBus.gain.setTargetAtTime(1, c.currentTime, 0.04);
+    sfxBus.gain.setTargetAtTime(0.9, c.currentTime, 0.04);
+    const musicVol = mode === 'playing' ? 0.2 : 0.12;
+    musicBus.gain.setTargetAtTime(musicVol, c.currentTime, 0.08);
+  }
+
+  function sfxDest() {
+    initAudioBuses();
+    return sfxBus || (audio() && audio().destination);
+  }
+
   function blip(freq, dur, type, vol, slideTo, attack) {
-    const c = audio(); if (!c) return;
+    const c = audio(); if (!c || musicMuted) return;
+    initAudioBuses();
+    const dest = sfxDest();
+    if (!dest) return;
     const t = c.currentTime;
     const o = c.createOscillator();
     const g = c.createGain();
@@ -1155,11 +2422,15 @@
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(vol, t + a);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(c.destination);
+    o.connect(g); g.connect(dest);
     o.start(t); o.stop(t + dur + 0.02);
   }
+
   function noise(dur, vol) {
-    const c = audio(); if (!c) return;
+    const c = audio(); if (!c || musicMuted) return;
+    initAudioBuses();
+    const dest = sfxDest();
+    if (!dest) return;
     const t = c.currentTime;
     const len = Math.floor(c.sampleRate * dur);
     const buf = c.createBuffer(1, len, c.sampleRate);
@@ -1169,8 +2440,75 @@
     const g = c.createGain();
     src.buffer = buf;
     g.gain.value = vol;
-    src.connect(g); g.connect(c.destination);
+    src.connect(g); g.connect(dest);
     src.start(t); src.stop(t + dur + 0.02);
+  }
+
+  const MUSIC_BPM = 116;
+  const MUSIC_STEP = 60 / MUSIC_BPM / 2;
+  const MUSIC_BASS = [82.4, 82.4, 73.4, 82.4, 65.4, 65.4, 73.4, 82.4];
+  const MUSIC_MELODY = [329.6, 392, 440, 392, 329.6, 293.7, 329.6, 392, 440, 523.3, 440, 392];
+
+  function playMusicNote(freq, at, dur, type, vol) {
+    const c = audio();
+    if (!c || musicMuted || !musicBus) return;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, at);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g); g.connect(musicBus);
+    o.start(at); o.stop(at + dur + 0.04);
+  }
+
+  function tickSoundtrack() {
+    if (musicMuted) return;
+    const c = audio();
+    if (!c) return;
+    initAudioBuses();
+    if (musicNextAt < c.currentTime) musicNextAt = c.currentTime + 0.04;
+    const lookAhead = 0.14;
+    while (musicNextAt < c.currentTime + lookAhead) {
+      const step = musicStep % 32;
+      if (step % 4 === 0) {
+        playMusicNote(MUSIC_BASS[(step / 4) % MUSIC_BASS.length], musicNextAt, MUSIC_STEP * 3.2, 'triangle', 0.05);
+      }
+      if (step % 2 === 0) {
+        playMusicNote(MUSIC_MELODY[step % MUSIC_MELODY.length], musicNextAt, MUSIC_STEP * 1.4, 'square', 0.014);
+      }
+      if (step % 16 === 0) {
+        playMusicNote(164.8, musicNextAt, MUSIC_STEP * 6, 'sine', 0.01);
+        playMusicNote(196, musicNextAt + 0.01, MUSIC_STEP * 6, 'sine', 0.008);
+      }
+      musicStep++;
+      musicNextAt += MUSIC_STEP;
+    }
+  }
+
+  function startSoundtrack() {
+    audio();
+    initAudioBuses();
+    const c = audio();
+    if (!c || musicMuted) return;
+    if (musicNextAt < c.currentTime) musicNextAt = c.currentTime + 0.05;
+  }
+
+  function toggleMute() {
+    musicMuted = !musicMuted;
+    try { localStorage.setItem(MUTE_KEY, musicMuted ? '1' : '0'); } catch {}
+    applyAudioLevels();
+    syncMuteButton();
+    if (!musicMuted) startSoundtrack();
+  }
+
+  function syncMuteButton() {
+    if (!elMuteBtn) return;
+    elMuteBtn.setAttribute('aria-pressed', musicMuted ? 'true' : 'false');
+    elMuteBtn.textContent = musicMuted ? '🔇' : '🔊';
+    elMuteBtn.title = musicMuted ? 'Unmute sound' : 'Mute sound';
+    elMuteBtn.classList.toggle('muted', musicMuted);
   }
   // Combo-aware audio — most sounds rise in pitch with combo for a
   // "leveling up" feel as a run gets hot. Combo expected in [1, 20].
@@ -1237,7 +2575,8 @@
     // Consumed by the next fire collision: pop a SAVED! popup + spark burst
     // and smash the fire instead of dying.
     shield: false,
-    shieldFlash: 0,         // visual fade after consuming
+    shieldFlash: 0,
+    armorSlots: 1,           // armor pickups allowed this run (Chrome Dino: one extra life max)
 
     // brief slow-mo on near-miss (timer is decremented in REAL time)
     slowMo: 0,
@@ -1274,12 +2613,23 @@
     achUnlocked: null, // Set of unlocked achievement ids (lazy-loaded)
     everSaved: false,  // run-local flag, used by achievement test
     mood: null,        // current time-of-day mood (set by resetRun)
+    costumeSeason: null, // sidewalk outfit theme (cosmetic only)
+
+    // Wave director + anti-repetition
+    wave: null,              // active WAVES entry + patternsLeft
+    recentPatterns: [],    // last N pattern names (no immediate repeats)
+    cleanStreak: 0,          // consecutive clean obstacle clears
+    streakMul: 1,            // brief score multiplier after ON FIRE
+    streakMulT: 0,
+    streakFlash: 0,          // HUD pop decay
+    heatTier: 0,
+    surgeT: 0,
+    nextSurgeAt: 45,
     particles: [],
     popups: [],
 
     // spawn timers
     nextObstacleDist: 900,
-    nextPickupDist: 700,
 
     // screen effects
     shake: { mag: 0, time: 0 },
@@ -1287,6 +2637,12 @@
     freezeT: 0,
     deathT: 0,             // post-hit countdown before showing overlay
     cameraBob: 0,
+    camPunch: 0,           // extra screen kick decay (cosmetic)
+    runStartT: 0,          // "GO!" opener countdown
+    jumpAssistLeft: 0,     // forgiving full jumps while learning
+    blockSpawnUntilFirstClear: true,
+    pendingFirstSpawn: true,
+    obstacleSpawns: 0,
 
     // tutorial
     hint: {
@@ -1303,13 +2659,12 @@
   // ═════════════════════════════════════════════════════════════════════
   function press(e) {
     if (e && e.cancelable) e.preventDefault();
-    audio(); // unlock on first interaction
-    state.truck.jumpHeld = true;
+    audio();
     if (mode === 'title' || mode === 'gameover') {
-      const t = e && e.target;
-      if (!t || (t !== btnStart && t !== btnRetry)) startGame();
+      startGame();
       return;
     }
+    state.truck.jumpHeld = true;
     if (mode === 'playing') queueJump();
   }
   // Release a held jump early — cuts the rising velocity to JUMP_CUT_V so
@@ -1318,6 +2673,8 @@
   function release() {
     state.truck.jumpHeld = false;
     if (mode !== 'playing') return;
+    // Spacebar tap-release was cutting jumps short during the tutorial window.
+    if (!canShortHop()) return;
     const t = state.truck;
     if (!t.onGround && t.vy < JUMP_CUT_V) t.vy = JUMP_CUT_V;
   }
@@ -1327,20 +2684,35 @@
   canvas.addEventListener('pointerup',     release);
   window.addEventListener('pointercancel', release);
   window.addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') press(e);
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+      if (e.repeat && mode === 'playing') {
+        state.truck.jumpHeld = true;
+        return;
+      }
+      if (e.repeat) return;
+      press(e);
+    }
   });
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
   });
   btnStart.addEventListener('click', () => startGame());
   btnRetry.addEventListener('click', () => startGame());
+  if (elMuteBtn) {
+    elMuteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleMute();
+    });
+  }
 
   function queueJump() {
     const t = state.truck;
-    // Already on the ground? Start the anticipation crouch immediately.
+    if (hasJumpAssist() && t.onGround && t.crouchT <= 0) {
+      actuallyJump();
+      return;
+    }
     if (t.onGround && t.crouchT <= 0) {
-      t.crouchT = CROUCH_TIME;
+      t.crouchT = currentPhase() <= 2 ? CROUCH_TIME * 0.35 : CROUCH_TIME;
       t.pendingJump = true;
       t.squash = 0.62;
       t.stretch = 1.18;
@@ -1348,9 +2720,7 @@
     }
     // Already crouching this jump? Tap is no-op (don't restart the crouch).
     if (t.crouchT > 0) return;
-    // Airborne: stash the press in a short buffer so it auto-fires the
-    // moment we land. Makes the controls feel forgiving and snappy.
-    t.jumpBuffer = JUMP_BUFFER;
+    t.jumpBuffer = hasJumpAssist() ? 0.26 : JUMP_BUFFER;
   }
   function actuallyJump() {
     const t = state.truck;
@@ -1358,11 +2728,12 @@
     t.onGround = false;
     t.squash = 0.72;
     t.stretch = 1.30;
-    // Variable jump: if the player ALREADY released the button before the
-    // crouch finished, this is a tap → apply the cut immediately so the
-    // hop is short. (Held tap → full -920 ascent.)
-    if (!t.jumpHeld) t.vy = JUMP_CUT_V;
+    const assist = hasJumpAssist();
+    if (state.jumpAssistLeft > 0) state.jumpAssistLeft -= 1;
+    // Short hop is a late-run skill — early taps always get full height.
+    if (!assist && canShortHop() && !t.jumpHeld) t.vy = JUMP_CUT_V;
     spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, 9, '#fff7e0');
+    spawnCapySpark(t.x + TRUCK_W * 0.5, GROUND_Y - 8, 3, getCostumeSeason().accent);
     sfx.jump(state.combo);
     if (!state.hint.jumpDone) state.hint.jumpDone = true;
   }
@@ -1374,7 +2745,9 @@
     mode = m;
     elTitle.classList.toggle('hidden', m !== 'title');
     elGameOver.classList.toggle('hidden', m !== 'gameover');
-    elHud.classList.toggle('hidden', m === 'title');
+    elHud.classList.toggle('hidden', m === 'title' || m === 'gameover');
+    syncThemeHud();
+    applyAudioLevels();
   }
 
   function resetRun() {
@@ -1394,6 +2767,7 @@
     state.shieldsGrabbed = 0;
     state.shield = false;
     state.shieldFlash = 0;
+    state.armorSlots = ARMOR_PER_RUN;
     state.comboGrace = 0;
     state.comboDecayClock = 0;
     state.combo = 1;
@@ -1406,7 +2780,7 @@
     Object.assign(state.truck, {
       x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
       onGround: true, squash: 1, stretch: 1,
-      crouchT: 0, pendingJump: false, jumpBuffer: 0, bob: 0, jumpHeld: false,
+      crouchT: 0, pendingJump: false, jumpBuffer: 0, jumpHeld: false, bob: 0,
       blinkT: rand(2, 4), blinking: 0,
     });
 
@@ -1419,16 +2793,31 @@
     state.everSaved = false;
     state.achUnlocked = loadAchievements();
     state.mood = pickMood();
+    state.costumeSeason = pickCostumeSeason();
 
-    state.nextObstacleDist = 900;
-    state.nextPickupDist   = 700;
+    state.nextObstacleDist = 99999;
+    state.pendingFirstSpawn = true;
+    state.obstacleSpawns = 0;
+    state.jumpAssistLeft = JUMP_ASSIST_COUNT;
+    state.blockSpawnUntilFirstClear = true;
     state.patternCount     = 0;
+    state.recentPatterns.length = 0;
+    state.cleanStreak = 0;
+    state.streakMul = 1;
+    state.streakMulT = 0;
+    state.streakFlash = 0;
+    state.heatTier = 0;
+    state.surgeT = 0;
+    state.nextSurgeAt = HEAT_AT[SURGE_AFTER_TIER] || 45;
+    startNextWave(true);
 
     state.shake.mag = 0; state.shake.time = 0;
     state.flashWhite = 0;
     state.freezeT = 0;
     state.deathT = 0;
     state.cameraBob = 0;
+    state.camPunch = 0;
+    state.runStartT = 0;
 
     state.hint.jumpDone   = tutSeen;
     state.hint.waterDone  = tutSeen;
@@ -1437,14 +2826,21 @@
     state.hint.waterA    = tutSeen ? 0 : 1;
     state.hint.shieldA   = 0; // pops on first pickup, not on boot
 
-    // Wipe + reseed cosmetic furniture (smoke columns, billboards, capys, …).
+    // Wipe + reseed cosmetic furniture (palette follows costume season).
     Cosmetics.clear();
     seedCosmetics();
+    syncThemeHud();
+    logRunTheme();
   }
 
   function startGame() {
     resetRun();
+    state.runStartT = RUN_START_TIME;
+    startSoundtrack();
     setMode('playing');
+    const season = getCostumeSeason();
+    blip(520, 0.12, 'triangle', 0.05, 780);
+    popup((season.emoji || '') + ' ' + season.label, W * 0.5, H * 0.32, season.accent, { big: true, life: 1.1, vy: -28 });
   }
 
   function die(cause) {
@@ -1455,8 +2851,14 @@
     state.shake.time = Math.max(state.shake.time, 0.45);
     state.slowMo = 0;            // never let near-miss slow-mo stretch the death sequence
     resetCombo();
-    // big particle burst
-    spawnCrash(state.truck.x + TRUCK_W * 0.5, state.truck.y + TRUCK_H * 0.4);
+    state.cleanStreak = 0;
+    state.streakMul = 1;
+    state.streakMulT = 0;
+    const tx = state.truck.x + TRUCK_W * 0.5;
+    const ty = state.truck.y + TRUCK_H * 0.35;
+    spawnCrash(tx, ty);
+    popup('WIPEOUT!', tx, ty - 40, '#ff5a3c', { big: true, life: 1.2, vy: -40 });
+    juicePunch(0.2);
     sfx.crash();
     mode = 'dying'; // suspended state — entities frozen, particles continue
   }
@@ -1547,8 +2949,8 @@
   //   Multi-fire spacing required (dx between consecutive fires):
   //     • At WARMUP 200 px/s: dx ≥ 204 px
   //     • At MAX    520 px/s: dx ≥ 530 px
-  //   We use dx ≥ 600 between fires so EVERY multi-fire pattern is jumpable
-  //   at every speed the game ever reaches (verified by playtest).
+  //   At ABS 640 + surge 1.14, cycle ≈ 1.04s → MIN_MULTI_FIRE_DX (780px).
+  //   Verified by tools/playtest.mjs + tools/gap-audit.mjs.
   // All fire variants are warm-spectrum (red/orange/magenta) so they can
   // never be mistaken for the cool-blue water pickup. Previously we had a
   // 'blue' flame variant which confused players (cool-colored hazard looked
@@ -1573,141 +2975,423 @@
   // (cycle ≈ jump airtime 0.92s + crouch 0.07s = ~1.0s = ~200 px @ start).
   // So we use dx ≥ 240 between separate fires in a pattern.
   const PATTERNS = [
-    // ── Easy (phase 1) ──
-    { name: 'single',     phase: 1, weight: 5, items: [{ kind: 'fire', dx: 0, variant: 'torch' }] },
-    { name: 'singleShort',phase: 1, weight: 3, items: [{ kind: 'fire', dx: 0, variant: 'short' }] },
-    { name: 'easyWater',  phase: 1, weight: 2, items: [{ kind: 'water', dx: 0, lift: 90 }] },
+    // ── Easy (phase 1) — tags drive wave director picks ──
+    { name: 'single',      phase: 1, weight: 5, tags: ['calm', 'pressure'],
+      items: [{ kind: 'fire', dx: 0, variant: 'torch' }] },
+    { name: 'singleShort', phase: 1, weight: 3, tags: ['calm'],
+      items: [{ kind: 'fire', dx: 0, variant: 'short' }] },
+    { name: 'easyWater',   phase: 1, weight: 2, tags: ['reward', 'calm'],
+      items: [{ kind: 'water', dx: 0, lift: 90 }] },
+    { name: 'openRoad',    phase: 1, weight: 2, tags: ['calm', 'reward'],
+      items: [{ kind: 'water', dx: 0, lift: 45 }, { kind: 'water', dx: 280, lift: 70 }] },
 
     // ── Medium (phase 2) ──
-    { name: 'tall',       phase: 2, weight: 3, items: [{ kind: 'fire', dx: 0, variant: 'tall' }] },
-    { name: 'ember',      phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'ember' }] },
-    { name: 'pit',        phase: 2, weight: 2, items: [{ kind: 'fire', dx: 0, variant: 'pit'  }] },
-    { name: 'doubleWide', phase: 2, weight: 3, items: [
+    { name: 'tall',       phase: 2, weight: 3, tags: ['pressure'],
+      items: [{ kind: 'fire', dx: 0, variant: 'tall' }] },
+    { name: 'ember',      phase: 2, weight: 2, tags: ['pressure'],
+      items: [{ kind: 'fire', dx: 0, variant: 'ember' }] },
+    { name: 'pit',        phase: 2, weight: 2, tags: ['pressure'],
+      items: [{ kind: 'fire', dx: 0, variant: 'pit'  }] },
+    { name: 'doubleWide', phase: 2, weight: 3, tags: ['pressure'],
+      items: [
         { kind: 'fire', dx: 0,   variant: 'short' },
-        { kind: 'fire', dx: 600, variant: 'short' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'short' },
     ]},
     // Mid-jump water reward — water lifted to ~jump peak height
     // (truck top reaches GROUND_Y - TRUCK_H - 184 = 186; we want truck top
     // to just touch the water bottom at peak. water y = GROUND_Y - 52 - lift.
     // lift = 220 puts the water cleanly within the jump arc.)
-    { name: 'jumpReward', phase: 2, weight: 2, items: [
+    { name: 'jumpReward', phase: 2, weight: 2, tags: ['reward'],
+      items: [
         { kind: 'fire',  dx: 0,   variant: 'short' },
-        { kind: 'water', dx: 110, lift: 140 },
+        { kind: 'water', dx: 220, lift: 120 },
     ]},
-
-    // Pit then a low water pickup — reward for nailing a precise jump.
-    { name: 'pitWater',   phase: 2, weight: 2, items: [
+    { name: 'pitWater',   phase: 2, weight: 2, tags: ['reward'],
+      items: [
         { kind: 'fire',  dx: 0,   variant: 'pit' },
         { kind: 'water', dx: 90,  lift: 60 },
     ]},
-    // Chain of waters for a quick boost top-up.
-    { name: 'waterChain', phase: 1, weight: 2, items: [
+    { name: 'waterChain', phase: 1, weight: 2, tags: ['reward'],
+      items: [
         { kind: 'water', dx: 0,   lift: 60 },
         { kind: 'water', dx: 200, lift: 90 },
     ]},
+    { name: 'hydrant',    phase: 2, weight: 2, tags: ['reward', 'calm'],
+      items: [
+        { kind: 'water', dx: 0,   lift: 35 },
+        { kind: 'fire',  dx: 420, variant: 'torch' },
+    ]},
+    { name: 'slowLane',   phase: 2, weight: 2, tags: ['calm'],
+      items: [{ kind: 'fire', dx: 0, variant: 'tall' }] },
 
     // ── Hard (phase 3) ──
-    { name: 'triple',     phase: 3, weight: 2, items: [
+    { name: 'triple',     phase: 3, weight: 2, tags: ['pressure', 'spectacle'],
+      items: [
         { kind: 'fire', dx: 0,    variant: 'short' },
-        { kind: 'fire', dx: 600,  variant: 'short' },
-        { kind: 'fire', dx: 1200, variant: 'short' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'short' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'short' },
     ]},
-    { name: 'pit+tall',   phase: 3, weight: 2, items: [
+    { name: 'pit+tall',   phase: 3, weight: 2, tags: ['pressure'],
+      items: [
         { kind: 'fire', dx: 0,   variant: 'pit' },
-        { kind: 'fire', dx: 620, variant: 'tall' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'tall' },
     ]},
-    { name: 'rewardRun',  phase: 3, weight: 1, items: [
+    { name: 'rewardRun',  phase: 3, weight: 1, tags: ['reward', 'spectacle'],
+      items: [
         { kind: 'fire',  dx: 0,    variant: 'torch' },
-        { kind: 'water', dx: 110,  lift: 140 },
-        { kind: 'fire',  dx: 640,  variant: 'torch' },
+        { kind: 'water', dx: 200,  lift: 130 },
+        { kind: 'fire',  dx: MIN_MULTI_FIRE_DX + 80, variant: 'torch' },
     ]},
-    // Iron run — four fires, hardest single pattern. Spacing 600px
-    // each so still single-jumpable at MAX speed (verified in playtest).
-    { name: 'ironRun',    phase: 3, weight: 1, items: [
+    { name: 'staccato',   phase: 3, weight: 2, tags: ['pressure', 'spectacle'],
+      items: [
         { kind: 'fire', dx: 0,    variant: 'short' },
-        { kind: 'fire', dx: 600,  variant: 'tall'  },
-        { kind: 'fire', dx: 1200, variant: 'short' },
-        { kind: 'fire', dx: 1800, variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'short' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'short' },
+    ]},
+    { name: 'highVault',  phase: 3, weight: 2, tags: ['reward'],
+      items: [
+        { kind: 'water', dx: 0,   lift: 200 },
+        { kind: 'fire',  dx: 360, variant: 'short' },
+    ]},
+    { name: 'ironRun',    phase: 3, weight: 1, tags: ['spectacle'],
+      items: [
+        { kind: 'fire', dx: 0,    variant: 'short' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'tall'  },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'short' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 3, variant: 'torch' },
     ]},
 
-    // ── New patterns (playability pass) ──
-
-    // The "high jump" — an ember fire flanked by lifted waters so the player
-    // is rewarded for the long arc.
-    { name: 'emberDance', phase: 2, weight: 2, items: [
+    { name: 'emberDance', phase: 2, weight: 2, tags: ['reward'],
+      items: [
         { kind: 'water', dx: 0,   lift: 140 },
         { kind: 'fire',  dx: 320, variant: 'ember' },
         { kind: 'water', dx: 620, lift: 80 },
     ]},
-
-    // Tight pit + tall combo from short distance — emphasizes commit timing.
-    { name: 'commit',     phase: 3, weight: 2, items: [
+    { name: 'commit',     phase: 3, weight: 2, tags: ['pressure', 'spectacle'],
+      items: [
         { kind: 'fire', dx: 0,   variant: 'short' },
-        { kind: 'fire', dx: 620, variant: 'pit'  },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'pit'  },
     ]},
-
-    // A pure water river — bonus boost top-up. Easy to skip if you're already
-    // boosting, valuable if you're not.
-    { name: 'riverRun',   phase: 2, weight: 2, items: [
+    { name: 'riverRun',   phase: 2, weight: 2, tags: ['reward', 'calm'],
+      items: [
         { kind: 'water', dx: 0,   lift: 60  },
         { kind: 'water', dx: 200, lift: 100 },
         { kind: 'water', dx: 400, lift: 70  },
     ]},
-
-    // The "tease" — fake out: one tall fire then a wide gap, so the player
-    // has to slow their jump cadence.
-    { name: 'breather',   phase: 1, weight: 2, items: [
+    { name: 'breather',   phase: 1, weight: 2, tags: ['calm'],
+      items: [
         { kind: 'fire',  dx: 0,   variant: 'short' },
         { kind: 'water', dx: 480, lift: 30  },
     ]},
-
-    // Ember + reward — high jump into a high water = a satisfying chain.
-    { name: 'emberWater', phase: 3, weight: 1, items: [
+    { name: 'emberWater', phase: 3, weight: 1, tags: ['reward'],
+      items: [
         { kind: 'fire',  dx: 0,   variant: 'ember' },
         { kind: 'water', dx: 220, lift: 180 },
     ]},
-
-    // Late game spectacle — pit, then tall, then ember. Hardest authored.
-    { name: 'gauntlet',   phase: 3, weight: 1, items: [
+    { name: 'gauntlet',   phase: 3, weight: 1, tags: ['spectacle'],
+      items: [
         { kind: 'fire', dx: 0,    variant: 'pit'   },
-        { kind: 'fire', dx: 640,  variant: 'tall'  },
-        { kind: 'fire', dx: 1280, variant: 'ember' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'tall'  },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'ember' },
+    ]},
+    { name: 'shieldDrop', phase: 2, weight: 1, tags: ['reward'],
+      items: [
+        { kind: 'fire',   dx: 0,   variant: 'short' },
+        { kind: 'shield', dx: 360, lift: 130 },
+        { kind: 'fire',   dx: MIN_MULTI_FIRE_DX + 120, variant: 'short' },
+    ]},
+    { name: 'shieldGift', phase: 3, weight: 1, tags: ['reward', 'calm'],
+      items: [{ kind: 'shield', dx: 0, lift: 110 }] },
+
+    // ── Phase 4+ (55s+) — late-run variety ──
+    { name: 'emberPit',   phase: 4, weight: 2, tags: ['pressure'],
+      items: [
+        { kind: 'fire', dx: 0,   variant: 'ember' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'pit'   },
+    ]},
+    { name: 'sirenAlley', phase: 4, weight: 2, tags: ['reward'],
+      items: [
+        { kind: 'water', dx: 0,   lift: 50  },
+        { kind: 'water', dx: 220, lift: 90  },
+        { kind: 'water', dx: 440, lift: 120 },
+        { kind: 'water', dx: 660, lift: 70  },
+    ]},
+    { name: 'leapHold',   phase: 4, weight: 2, tags: ['pressure', 'spectacle'],
+      items: [
+        { kind: 'fire', dx: 0,   variant: 'tall'  },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'pit'   },
+    ]},
+    { name: 'fireWall',   phase: 4, weight: 2, tags: ['pressure'],
+      items: [
+        { kind: 'fire', dx: 0,   variant: 'torch' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX, variant: 'ember' },
     ]},
 
-    // RARE: shield pickup, dropped between two safe fires. Player decides
-    // whether to risk an extra jump for a one-hit immunity buff.
-    { name: 'shieldDrop', phase: 2, weight: 1, items: [
-        { kind: 'fire',   dx: 0,   variant: 'short' },
-        { kind: 'shield', dx: 320, lift: 140 },
-        { kind: 'fire',   dx: 640, variant: 'short' },
+    // ── Phase 5 (90s+) — endgame spectacle pool ──
+    { name: 'infernoRun', phase: 5, weight: 1, tags: ['spectacle'],
+      items: [
+        { kind: 'fire', dx: 0,    variant: 'ember' },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX,  variant: 'tall'  },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 2, variant: 'pit'   },
+        { kind: 'fire', dx: MIN_MULTI_FIRE_DX * 3, variant: 'torch' },
     ]},
-    // RARE: lone shield gift on a breather. Always grabbable.
-    { name: 'shieldGift', phase: 3, weight: 1, items: [
-        { kind: 'shield', dx: 0, lift: 110 },
+    { name: 'megaReward', phase: 5, weight: 1, tags: ['reward'],
+      items: [
+        { kind: 'fire',  dx: 0,   variant: 'short' },
+        { kind: 'water', dx: 120, lift: 160 },
+        { kind: 'water', dx: 340, lift: 120 },
+        { kind: 'shield', dx: 560, lift: 130 },
     ]},
   ];
 
   function currentPhase() {
-    // Tuned to the new speed curve (WARMUP_TIME 6, RAMP 9, MAX 480):
-    //   t= 6s → speed 200 (warmup ends)
-    //   t=15s → speed 281 (phase 1→2: introduce multi-fire + water reward)
-    //   t=35s → speed 461 (phase 2→3: triple, pit+tall, rewardRun unlock)
-    //   t≈37s → MAX_SPEED reached
-    if (state.runTime < 15) return 1;
-    if (state.runTime < 35) return 2;
-    return 3;
+    if (state.runTime < 22) return 1;
+    if (state.runTime < 42) return 2;
+    if (state.runTime < 65) return 3;
+    if (state.runTime < 95) return 4;
+    if (state.runTime < 130) return 5;
+    return 6;
+  }
+
+  function countPatternFires(p) {
+    return p.items.filter((it) => it.kind === 'fire').length;
+  }
+
+  function patternIsMultiFire(p) {
+    return countPatternFires(p) > 1;
+  }
+
+  function hasJumpAssist() {
+    return state.jumpAssistLeft > 0 || state.runTime < JUMP_ASSIST_TIME;
+  }
+
+  function inEasyRun() {
+    return state.runTime < EASY_RUN_TIME || state.obstacleSpawns < TRAINING_SPAWNS;
+  }
+
+  function canShortHop() {
+    return getHeatTier() >= 3 && state.runTime >= EASY_RUN_TIME;
+  }
+
+  function runSpeedForGaps() {
+    return Math.max(WARMUP_SPEED, state.speed);
+  }
+
+  function gapPxFromSeconds(lo, hi) {
+    const spd = runSpeedForGaps();
+    return rand(lo, hi) * spd;
+  }
+
+  function getSpawnPressure() {
+    const tier = getHeatTier();
+    if (tier <= 0) return 0.92;
+    if (tier <= 1) return 1.0;
+    if (tier <= 2) return 1.06;
+    if (tier <= 3) return 1.12;
+    return 1.18 + tier * 0.06;
+  }
+
+  function patternGapBreathe(phase, diff) {
+    if (phase === 1) return gapPxFromSeconds(GAP_SEC_EARLY[0], GAP_SEC_EARLY[1]);
+    if (phase === 2) return gapPxFromSeconds(GAP_SEC_MID[0], GAP_SEC_MID[1]);
+    if (diff.tier >= 4) return gapPxFromSeconds(GAP_SEC_LATE[0], GAP_SEC_LATE[1]);
+    return gapPxFromSeconds(1.55, 2.05);
+  }
+
+  // Heat tier — the run never plateaus; speed, gaps, and waves keep tightening.
+  function getHeatTier() {
+    const t = state.runTime;
+    let tier = 0;
+    for (let i = HEAT_AT.length - 1; i >= 0; i--) {
+      if (t >= HEAT_AT[i]) { tier = i; break; }
+    }
+    return tier;
+  }
+
+  function getDifficultyProfile() {
+    const tier = getHeatTier();
+    const gapScale = Math.max(0.58, 1 - tier * 0.08);
+    const comboDecayMul = 1 + tier * 0.16;
+    const spawnPressure = getSpawnPressure();
+    const armoredTier = tier >= 5;
+    const armoredStrict = tier >= 6;
+    return { tier, gapScale, comboDecayMul, spawnPressure, armoredTier, armoredStrict };
+  }
+
+  function getBoostCap() {
+    return Math.max(1.6, BOOST_MAX_BASE - getHeatTier() * 0.42);
+  }
+
+  function getWaterFill() {
+    const tier = getHeatTier();
+    let fill = BOOST_TIME_PER * (1 - tier * 0.08);
+    if (state.boostTime > 0.25) fill *= BOOST_TOPOFF_MUL;
+    return Math.max(0.45, fill);
+  }
+
+  function getBoostDrainRate() {
+    return BOOST_DRAIN_BASE + getHeatTier() * BOOST_DRAIN_HEAT;
+  }
+
+  function patternHasPickup(p) {
+    return p.items.some((it) => it.kind === 'water' || it.kind === 'shield');
+  }
+
+  function patternFireOnly(p) {
+    return p.items.every((it) => it.kind === 'fire');
+  }
+
+  function fireIsArmored(variant) {
+    const d = getDifficultyProfile();
+    if (!d.armoredTier) return false;
+    if (d.armoredStrict) return variant !== 'pit';
+    return variant === 'tall' || variant === 'ember' || variant === 'torch';
+  }
+
+  function shouldSpawnPickup(kind) {
+    const tier = getHeatTier();
+    if (kind === 'water') {
+      if (tier >= 4) return false;
+      if (tier >= 2 && state.boostTime > getBoostCap() * 0.7) return false;
+      if (tier >= 3 && Math.random() > 0.35) return false;
+    }
+    if (kind === 'shield') {
+      if (state.armorSlots <= 0 || state.shield) return false;
+      if (tier >= 3 && Math.random() > 0.25) return false;
+    }
+    return true;
+  }
+
+  function updateRunSpeed() {
+    if (state.runTime <= WARMUP_TIME) {
+      state.speed = WARMUP_SPEED;
+      return;
+    }
+    const elapsed = state.runTime - WARMUP_TIME;
+    const capElapsed = (MAX_SPEED - WARMUP_SPEED) / RAMP_PER_SEC;
+    let spd;
+    if (elapsed <= capElapsed) {
+      spd = WARMUP_SPEED + RAMP_PER_SEC * elapsed;
+    } else {
+      spd = MAX_SPEED + POST_CAP_RAMP * (elapsed - capElapsed);
+    }
+    state.speed = Math.min(ABSOLUTE_MAX_SPEED, spd);
+  }
+
+  function patternHasTag(p, tag) {
+    return (p.tags || []).indexOf(tag) >= 0;
+  }
+
+  function weightedPick(items, getWeight) {
+    let total = 0;
+    const ws = items.map((it) => {
+      const w = Math.max(0, getWeight(it));
+      total += w;
+      return w;
+    });
+    if (total <= 0) return items[0];
+    let r = Math.random() * total;
+    for (let i = 0; i < items.length; i++) {
+      if ((r -= ws[i]) <= 0) return items[i];
+    }
+    return items[items.length - 1];
+  }
+
+  // ── Wave director (Temple Run "set pieces", Subway "mission beats") ──
+  function startNextWave(isFirst) {
+    const phase = currentPhase();
+    const lastId = state.wave && state.wave.id;
+    const tier = getHeatTier();
+    if (isFirst || state.obstacleSpawns < 8 || tier <= 2) {
+      state.wave = {
+        id: 'calm',
+        tag: 'calm',
+        gapMul: tier <= 0 ? 1.22 : tier <= 1 ? 1.12 : 1.05,
+        patternsLeft: rand(3, 5),
+      };
+      if (!isFirst && tier <= 2) showTelegraph('BREATHER', '#a8e6ff');
+      return;
+    }
+    const pool = ['calm', 'reward', 'pressure', 'spectacle'];
+    const pickId = weightedPick(pool, (id) => {
+      if (isFirst) return id === 'calm' ? 10 : id === 'reward' ? 2 : 0.15;
+      let w = 2;
+      if (id === 'spectacle') w = phase >= 3 ? 2.4 : 0.5;
+      if (id === 'calm')   w = tier >= 3 ? 0 : tier >= 2 ? 0.35 : 2;
+      if (id === 'reward') w = tier >= 4 ? 0 : tier >= 2 ? 0.4 : 1.4;
+      if (id === 'pressure') w = tier >= 2 ? 3 + tier * 0.5 : tier >= 1 ? 0.6 : 0.15;
+      if (id === 'spectacle') w += tier * 0.55;
+      if (state.boosting || state.shield) {
+        if (id === 'reward' || id === 'calm') w *= 0.05;
+        if (id === 'pressure' || id === 'spectacle') w *= 1.8;
+      }
+      if (id === lastId) w *= 0.12;
+      if (lastId === 'spectacle' && id === 'pressure') w *= 0.35;
+      if (lastId === 'pressure' && id === 'calm') w *= tier >= 2 ? 0.4 : 2.4;
+      if (lastId === 'pressure' && id === 'reward') w *= tier >= 3 ? 0.15 : 1.2;
+      return w;
+    });
+    const def = WAVES[pickId];
+    state.wave = {
+      id: def.id,
+      tag: def.tag,
+      gapMul: def.gapMul,
+      patternsLeft: rand(def.patternsMin, def.patternsMax),
+    };
+    if (!isFirst && def.tele) {
+      showTelegraph(def.tele, def.color);
+    }
   }
 
   function pickPattern() {
     const phase = currentPhase();
-    const candidates = PATTERNS.filter(p => p.phase <= phase);
-    let total = 0;
-    for (const p of candidates) total += p.weight;
-    let r = Math.random() * total;
-    for (const p of candidates) {
-      if ((r -= p.weight) <= 0) return p;
+    const tier = getHeatTier();
+    let candidates = PATTERNS.filter(p => p.phase <= phase);
+    const maxFires = tier <= 2 ? 1 : tier <= 3 ? 2 : tier <= 4 ? 3 : 99;
+    candidates = candidates.filter((p) => countPatternFires(p) <= maxFires);
+    if (phase === 1) {
+      const easy = candidates.filter((p) => p.phase === 1 && !patternIsMultiFire(p));
+      if (easy.length) candidates = easy;
     }
-    return candidates[0];
+    if (inEasyRun()) {
+      const train = candidates.filter((p) => p.name === 'singleShort' || p.name === 'single');
+      if (train.length) candidates = train;
+    }
+    const waveTag = state.wave && state.wave.tag;
+    if (waveTag) {
+      const tagged = candidates.filter(p => patternHasTag(p, waveTag));
+      if (tagged.length >= 3) candidates = tagged;
+    }
+    if (tier <= 2) {
+      const calmish = candidates.filter(
+        (p) => patternHasTag(p, 'calm') || patternHasTag(p, 'reward') || !patternIsMultiFire(p),
+      );
+      if (calmish.length >= 3) candidates = calmish;
+    }
+    // Survival economy: starve pickup-heavy patterns as heat rises.
+    if (tier >= 2) {
+      const lean = candidates.filter((p) => !patternHasPickup(p) || patternFireOnly(p));
+      if (lean.length >= 6) candidates = lean;
+    }
+    if (tier >= 3) {
+      const fires = candidates.filter(patternFireOnly);
+      if (fires.length >= 5) candidates = fires;
+    }
+    if (tier >= 4) {
+      const hard = candidates.filter(
+        (p) => patternHasTag(p, 'pressure') || patternHasTag(p, 'spectacle'),
+      );
+      if (hard.length >= 4) candidates = hard;
+    }
+    const recent = state.recentPatterns;
+    return weightedPick(candidates, (p) => {
+      let w = p.weight;
+      if (recent.length && recent[recent.length - 1] === p.name) return 0;
+      if (recent.indexOf(p.name) >= 0) w *= 0.3;
+      if (tier >= 2 && patternHasPickup(p)) w *= 0.25;
+      if ((state.boosting || state.shield) && patternHasPickup(p)) w *= 0.08;
+      return w;
+    });
   }
 
   // Special patterns get an announce banner — gives the player a
@@ -1717,20 +3401,31 @@
     ironRun:    { text: 'IRON RUN!',  color: '#ff3a2a' },
     triple:     { text: 'TRIPLE!',    color: '#ff8a3c' },
     rewardRun:  { text: 'REWARD!',    color: '#ffd24a' },
-    shieldGift: { text: 'SHIELD!',    color: '#ffd24a' },
-    shieldDrop: { text: 'SHIELD!',    color: '#ffd24a' },
+    shieldGift: { text: 'ARMOR!',     color: '#ffd24a' },
+    shieldDrop: { text: 'ARMOR!',     color: '#ffd24a' },
     emberDance: { text: 'EMBER DANCE!', color: '#ff3a8a' },
     waterChain: { text: 'WATER CHAIN!', color: '#4ec5ff' },
     riverRun:   { text: 'RIVER!',     color: '#4ec5ff' },
   };
 
   function spawnPattern() {
-    const p = pickPattern();
+    const isFirst = state.obstacleSpawns === 0;
+    const training = state.obstacleSpawns < TRAINING_SPAWNS;
+    const p = training
+      ? (PATTERNS.find((x) => x.name === 'singleShort') || PATTERNS[0])
+      : pickPattern();
+    const trainLead = training ? (isFirst ? FIRST_FLAME_LEAD_PX : TRAINING_LEAD_PX) : 0;
     let span = 0;
-    const tele = TELEGRAPHS[p.name];
-    if (tele) showTelegraph(tele.text, tele.color);
+    if (isFirst) {
+      showTelegraph('SPACEBAR TO JUMP!', '#ffe24c');
+    } else if (training) {
+      showTelegraph('JUMP!', '#ffe24c');
+    } else {
+      const tele = TELEGRAPHS[p.name];
+      if (tele) showTelegraph(tele.text, tele.color);
+    }
     for (const it of p.items) {
-      const baseX = W + 80 + it.dx;
+      const baseX = W + 80 + it.dx + trainLead;
       if (it.kind === 'fire') {
         const v = FIRE_VARIANTS[it.variant] || FIRE_VARIANTS.torch;
         const w = v.w, h = v.h;
@@ -1742,9 +3437,11 @@
           variant: it.variant || 'torch',
           phase: Math.random() * Math.PI * 2,
           passed: false,
+          tutorial: training,
         });
         if (it.dx + w > span) span = it.dx + w;
       } else if (it.kind === 'water') {
+        if (!shouldSpawnPickup('water')) continue;
         const w = 48, h = 52;
         const lift = it.lift != null ? it.lift : rand(PICKUP_LIFT_MIN, PICKUP_LIFT_MAX);
         state.pickups.push({
@@ -1754,6 +3451,7 @@
         });
         if (it.dx + w > span) span = it.dx + w;
       } else if (it.kind === 'shield') {
+        if (!shouldSpawnPickup('shield')) continue;
         const w = 44, h = 44;
         const lift = it.lift != null ? it.lift : 120;
         state.pickups.push({
@@ -1764,24 +3462,45 @@
         if (it.dx + w > span) span = it.dx + w;
       }
     }
-    // Add breathing room after the pattern based on speed/phase.
-    const phase = currentPhase();
-    const breathe = phase === 1 ? rand(540, 760) : phase === 2 ? rand(420, 620) : rand(360, 540);
-    // Every Nth pattern is a guaranteed breather — gives the run a heartbeat
-    // rhythm (intense / calm / intense) instead of a flat wall of obstacles.
-    state.patternCount = (state.patternCount || 0) + 1;
-    const isBreather = state.patternCount % 5 === 0;
-    state.nextObstacleDist = span + breathe + (isBreather ? rand(420, 640) : 0);
-  }
+    // Track recent names so pickPattern never loops the same set-piece.
+    state.recentPatterns.push(p.name);
+    if (state.recentPatterns.length > 6) state.recentPatterns.shift();
 
-  function spawnLooseWater() {
-    const w = 48, h = 52;
-    const y = GROUND_Y - h - rand(PICKUP_LIFT_MIN, PICKUP_LIFT_MAX);
-    state.pickups.push({
-      x: W + 80, y, w, h,
-      kind: 'water',
-      phase: Math.random() * Math.PI * 2,
-    });
+    // Wave bookkeeping — when the wave ends, roll the next act.
+    if (state.wave) {
+      state.wave.patternsLeft -= 1;
+      if (state.wave.patternsLeft <= 0) startNextWave(false);
+    }
+
+    const phase = currentPhase();
+    const diff = getDifficultyProfile();
+    let breathe = patternGapBreathe(phase, diff);
+    const gapMul = ((state.wave && state.wave.gapMul) || 1) * diff.gapScale;
+    if (state.surgeT > 0) breathe *= SURGE_GAP_MUL;
+    breathe *= gapMul;
+    if (training) breathe = gapPxFromSeconds(GAP_SEC_TRAIN[0], GAP_SEC_TRAIN[1]);
+    if (state.wave && state.wave.id === 'calm') {
+      breathe += gapPxFromSeconds(GAP_SEC_CALM[0], GAP_SEC_CALM[1]);
+    }
+    if (state.wave && state.wave.id === 'spectacle') breathe += gapPxFromSeconds(0.2, 0.45);
+    if (diff.tier >= 4 && Math.random() < 0.14) breathe *= 0.88;
+    if (diff.tier >= 5 && Math.random() < 0.12) breathe *= 0.82;
+    state.obstacleSpawns += 1;
+    state.patternCount = (state.patternCount || 0) + 1;
+    const minGapSec = 1.35 + diff.tier * 0.1;
+    const minAfterPx = minGapSec * runSpeedForGaps();
+    if (isFirst || training) {
+      state.nextObstacleDist = span + gapPxFromSeconds(GAP_SEC_TRAIN[0], GAP_SEC_TRAIN[1]);
+      return;
+    }
+    state.nextObstacleDist = span + Math.max(breathe, minAfterPx);
+    if (diff.tier >= 5 && Math.random() < 0.1) {
+      const chainSec = 1.15 + diff.tier * 0.06;
+      state.nextObstacleDist = Math.min(
+        state.nextObstacleDist,
+        span + chainSec * runSpeedForGaps(),
+      );
+    }
   }
 
   // ═════════════════════════════════════════════════════════════════════
@@ -1831,8 +3550,41 @@
       });
     }
   }
+  function spawnCapySpark(x, y, n, color) {
+    const c = color || '#b4884f';
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2);
+      const s = rand(90, 280);
+      state.particles.push({
+        x: x + rand(-6, 6), y: y + rand(-6, 6),
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s - rand(40, 120),
+        life: rand(0.45, 0.75), max: 0.75,
+        size: rand(4, 7), color: c, kind: 'capy', grav: 520,
+      });
+    }
+  }
+  function spawnRing(x, y, color) {
+    state.particles.push({
+      x, y, vx: 0, vy: 0,
+      life: 0.38, max: 0.38,
+      size: 6, ringMax: rand(36, 58), color: color || '#ffe24c',
+      kind: 'ring', grav: 0,
+    });
+  }
+  function spawnWaterSplash(x, y) {
+    const season = getCostumeSeason();
+    const pal = season.confetti || ['#4ec5ff', '#a8e6ff', '#fff7e0'];
+    spawnSpark(x, y, 16, pal);
+    spawnCapySpark(x, y, 5, season.accent);
+    spawnRing(x, y, season.accent);
+  }
+  function juicePunch(amount) {
+    state.camPunch = Math.max(state.camPunch, amount);
+  }
   function spawnCrash(x, y) {
     spawnSpark(x, y, 32, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0', '#1a0f3a']);
+    spawnCapySpark(x, y, 10, '#b4884f');
+    spawnRing(x, y, '#ff5a3c');
     for (let i = 0; i < 12; i++) {
       state.particles.push({
         x: x + rand(-10, 10), y: y - 6,
@@ -1843,8 +3595,16 @@
       });
     }
   }
-  function popup(text, x, y, color) {
-    state.popups.push({ x, y, text, color: color || '#fff7e0', life: 0.95, max: 0.95, vy: -56 });
+  function popup(text, x, y, color, opts) {
+    opts = opts || {};
+    const life = opts.life != null ? opts.life : 0.95;
+    state.popups.push({
+      x, y, text,
+      color: color || '#fff7e0',
+      life, max: life,
+      vy: opts.vy != null ? opts.vy : -56,
+      big: !!opts.big,
+    });
   }
 
   function shake(mag, dur) {
@@ -1861,11 +3621,18 @@
     for (let i = state.comboLevelShown + 1; i < COMBO_LEVELS.length; i++) {
       if (state.combo >= COMBO_LEVELS[i]) {
         state.comboLevelShown = i;
-        showComboPop('×' + COMBO_LEVELS[i] + '!');
-        state.flashWhite = Math.max(state.flashWhite, 0.08);
-        shake(5, 0.16);
-        // gentle ascending bleep per threshold
+        const cheer = COMBO_CHEERS[i] || 'NICE!';
+        showComboPop('×' + COMBO_LEVELS[i] + '!  ' + cheer);
+        const cx = state.truck.x + TRUCK_W * 0.5;
+        const cy = state.truck.y - 20;
+        popup(cheer, cx, cy - 30, '#ffe24c', { big: true, vy: -72 });
+        spawnCapySpark(cx, cy, 8 + i * 2, getCostumeSeason().accent);
+        spawnRing(cx, cy, '#ffd24a');
+        state.flashWhite = Math.max(state.flashWhite, 0.06 + i * 0.02);
+        shake(5 + i * 1.5, 0.14 + i * 0.02);
+        juicePunch(0.08 + i * 0.02);
         blip(440 + i * 80, 0.16, 'triangle', 0.06, 880 + i * 80);
+        blip(660 + i * 60, 0.08, 'sine', 0.04, 1200 + i * 40);
       }
     }
     if (state.combo !== before) bumpComboPill();
@@ -1956,7 +3723,7 @@
   function showTelegraph(text, color) {
     state.telegraphs.push({
       text, color,
-      x: W + 40, y: GROUND_Y - 210,
+      x: W + 40, y: GROUND_Y - 168,
       life: 1.6, max: 1.6,
     });
   }
@@ -1967,8 +3734,15 @@
       return { count: state.telegraphs.length, mode };
     };
     window.__cr_mood = (id) => {
-      if (MOODS[id]) { state.mood = MOODS[id]; return MOODS[id].label; }
+      if (MOODS[id]) { state.mood = Object.assign({ id }, MOODS[id]); return MOODS[id].label; }
       return Object.keys(MOODS);
+    };
+    window.__cr_season = (id) => {
+      if (COSTUME_SEASONS[id]) {
+        state.costumeSeason = Object.assign({ id }, COSTUME_SEASONS[id]);
+        return COSTUME_SEASONS[id].label;
+      }
+      return Object.keys(COSTUME_SEASONS);
     };
   }
 
@@ -2016,11 +3790,25 @@
 
     if (mode !== 'playing') return;
 
+    if (state.runStartT > 0) state.runStartT = Math.max(0, state.runStartT - dt);
+    if (state.camPunch > 0) state.camPunch = Math.max(0, state.camPunch - dt * 2.2);
+
     state.runTime += dt;
 
-    // Pace: locked warmup, then gentle ramp
-    if (state.runTime > WARMUP_TIME) {
-      state.speed = Math.min(MAX_SPEED, WARMUP_SPEED + RAMP_PER_SEC * (state.runTime - WARMUP_TIME));
+    updateRunSpeed();
+    state.heatTier = getHeatTier();
+    const diff = getDifficultyProfile();
+
+    if (state.heatTier >= SURGE_AFTER_TIER) {
+      if (state.surgeT > 0) {
+        state.surgeT = Math.max(0, state.surgeT - dt);
+      } else if (state.runTime >= state.nextSurgeAt) {
+        state.surgeT = SURGE_DURATION;
+        state.nextSurgeAt = state.runTime + SURGE_INTERVAL;
+        showTelegraph('RUSH!', '#ff5a3c');
+        shake(6, 0.14);
+        blip(180, 0.12, 'sawtooth', 0.06, 360);
+      }
     }
 
     // Boost handling — track edge transitions so we can play a small
@@ -2028,7 +3816,7 @@
     const wasBoosting = state.boosting;
     state.boosting = state.boostTime > 0;
     if (state.boosting) {
-      state.boostTime = Math.max(0, state.boostTime - dt);
+      state.boostTime = Math.max(0, state.boostTime - dt * getBoostDrainRate());
       state.boostUsed += dt;
       spawnBoostFlame();
     } else if (wasBoosting) {
@@ -2037,10 +3825,16 @@
       blip(220, 0.16, 'sine',     0.04, 110);
       spawnDust(state.truck.x + TRUCK_W * 0.5, GROUND_Y - 6, 6, '#a8c3ff');
     }
-    const worldSpeed = state.boosting ? state.speed * BOOST_MULT : state.speed;
+    const surgeMul = state.surgeT > 0 ? SURGE_SPEED_MUL : 1;
+    const worldSpeed = (state.boosting ? state.speed * BOOST_MULT : state.speed) * surgeMul;
     const scoreMul   = state.boosting ? BOOST_SCORE_MULT : 1;
 
-    state.distance += worldSpeed * dt * scoreMul;
+    const streakScoreMul = state.streakMulT > 0 ? state.streakMul : 1;
+    if (state.streakMulT > 0) {
+      state.streakMulT = Math.max(0, state.streakMulT - dt);
+      if (state.streakMulT <= 0) state.streakMul = 1;
+    }
+    state.distance += worldSpeed * dt * scoreMul * streakScoreMul;
     // score = real distance (m) + cumulative bonuses (smash, near-miss,
     // pickup, milestone). Keeping bonuses out of `distance` prevents the
     // milestone-feedback freeze.
@@ -2072,8 +3866,15 @@
         t.vy = 0;
         t.onGround = true;
         t.squash = 0.64; t.stretch = 1.36;
-        spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, 12, '#e9dbb8');
-        shake(4, 0.10);
+        const hardLand = t.stretch > 1.1 || t.squash < 0.75;
+        spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, hardLand ? 18 : 10, '#e9dbb8');
+        if (hardLand) {
+          spawnRing(t.x + TRUCK_W * 0.5, GROUND_Y - 4, '#fff7e0');
+          shake(6, 0.12);
+          juicePunch(0.06);
+        } else {
+          shake(4, 0.10);
+        }
         sfx.land();
         // Buffered jump: if the player tapped within the buffer window
         // while still airborne, fire the next jump immediately on landing.
@@ -2095,17 +3896,21 @@
     }
     if (t.blinking > 0) t.blinking -= dt;
 
-    // ── Spawn timers (after grace) ───────────────────────────────────
-    if (state.runTime > GRACE_TIME) {
-      state.nextObstacleDist -= worldSpeed * dt;
-      state.nextPickupDist   -= worldSpeed * dt;
-
-      if (state.nextObstacleDist <= 0) {
-        spawnPattern();   // sets state.nextObstacleDist internally
+    // ── Spawn timers ─────────────────────────────────────────────────
+    const spawnPressure = diff.spawnPressure
+      + (state.boosting ? 0.18 : 0)
+      + (state.shield ? 0.12 : 0);
+    if (state.pendingFirstSpawn) {
+      if (state.runTime >= FIRST_SPAWN_AT) {
+        spawnPattern();
+        state.pendingFirstSpawn = false;
       }
-      if (state.nextPickupDist <= 0) {
-        spawnLooseWater();
-        state.nextPickupDist = rand(PICKUP_GAP_MIN, PICKUP_GAP_MAX);
+    } else {
+      const holdSpawn = state.blockSpawnUntilFirstClear
+        && state.obstacles.some((o) => o.kind === 'fire' && !o.passed);
+      if (!holdSpawn) {
+        state.nextObstacleDist -= worldSpeed * dt * spawnPressure;
+        if (state.nextObstacleDist <= 0) spawnPattern();
       }
     }
 
@@ -2116,25 +3921,25 @@
       o.phase += dt * 6;
       spawnFireFlick(o.x + o.w * 0.5, o.y + 8);
       const hb = truckHitbox();
-      const pad = 6;
+      const truckPad = o.tutorial ? 8 : 6;
+      const fireInset = o.tutorial ? 22 : 10;
       const hit = aabb(
-        hb.x + pad, hb.y + pad, hb.w - pad * 2, hb.h - pad * 2,
-        o.x + 10, o.y + 10, o.w - 20, o.h - 20,
+        hb.x + truckPad, hb.y + truckPad, hb.w - truckPad * 2, hb.h - truckPad * 2,
+        o.x + fireInset, o.y + fireInset, o.w - fireInset * 2, o.h - fireInset * 2,
       );
-      if (hit) {
-        if (state.boosting) {
-          state.firesSmashed += 1;
+      if (hit && o.tutorial && !t.onGround) {
+        if (!o.passed) {
+          o.passed = true;
           addCombo(1);
-          const pts = 10 * state.combo;
-          awardBonus(pts);
-          spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 24, ['#ff5a3c', '#ffb14c', '#ffe24c', '#fff7e0']);
-          popup('SMASH +' + pts, o.x + o.w / 2, o.y - 4, '#ffe24c');
-          shake(8, 0.18);
-          sfx.smash(state.combo);
-          state.obstacles.splice(i, 1);
-          continue;
-        } else if (state.shield) {
-          // Shield save — consume the shield, smash the fire, brief immunity.
+          state.cleanStreak += 1;
+          popup('NICE!', o.x + o.w * 0.5, o.y - 20, '#ffe24c', { life: 0.7 });
+          spawnSpark(state.truck.x + TRUCK_W * 0.5, state.truck.y, 10, ['#ffe24c', '#fff7e0']);
+        }
+        continue;
+      }
+      if (hit) {
+        if (state.shield) {
+          // Armor save — consume charge, clear the fire, keep combo.
           state.shield = false;
           state.shieldFlash = 0.6;
           state.everSaved = true;
@@ -2142,10 +3947,14 @@
           // Keep the combo intact + small bonus.
           const pts = 15 * state.combo;
           awardBonus(pts);
-          spawnSpark(o.x + o.w / 2, o.y + o.h / 2, 28, ['#ffd24a', '#ffe24c', '#fff7e0', '#ff5a3c']);
-          popup('SAVED!  +' + pts, o.x + o.w / 2, o.y - 4, '#ffd24a');
+          const ax = o.x + o.w / 2;
+          const ay = o.y + o.h / 2;
+          spawnSpark(ax, ay, 28, ['#ffd24a', '#ffe24c', '#fff7e0', '#ff5a3c']);
+          spawnRing(ax, ay, '#ffd24a');
+          popup('ARMOR! +' + pts, ax, o.y - 4, '#ffd24a', { big: true });
           state.flashWhite = Math.max(state.flashWhite, 0.22);
           shake(12, 0.22);
+          juicePunch(0.14);
           blip(720, 0.18, 'triangle', 0.08, 360);
           state.obstacles.splice(i, 1);
           continue;
@@ -2158,20 +3967,39 @@
       // crosses the truck's leading edge AND we cleared it.
       if (!o.passed && o.x + o.w < state.truck.x + 18) {
         o.passed = true;
+        if (o.tutorial) state.blockSpawnUntilFirstClear = false;
         const clearance = o.y - (state.truck.y + TRUCK_H); // px above obstacle top
         if (clearance >= 0) {
-          // It's a clean jump. Always +1 combo.
           addCombo(1);
+          state.cleanStreak += 1;
+          if (state.cleanStreak > 0 && state.cleanStreak % STREAK_EVERY === 0) {
+            addCombo(1);
+            state.streakMul = STREAK_BONUS_MUL;
+            state.streakMulT = STREAK_MUL_TIME;
+            state.streakFlash = 1.1;
+            const sx = state.truck.x + TRUCK_W * 0.5;
+            popup('ON FIRE ×' + state.cleanStreak, sx, state.truck.y - 28, '#ffe24c', { big: true });
+            spawnRing(sx, state.truck.y - 10, '#ffd24a');
+            spawnCapySpark(sx, state.truck.y - 16, 8, '#ffd24a');
+            shake(7, 0.18);
+            juicePunch(0.09);
+            blip(520 + state.cleanStreak * 8, 0.14, 'triangle', 0.07, 1040);
+          }
           if (clearance < NEAR_MISS_PX) {
-            // CLOSE! near-miss bonus
             state.nearMisses += 1;
             const pts = NEAR_MISS_POINTS * state.combo;
             awardBonus(pts);
-            popup('CLOSE! +' + pts, o.x + o.w * 0.5 + 14, o.y - 8, '#ffe24c');
-            spawnSpark(state.truck.x + TRUCK_W * 0.4, state.truck.y + TRUCK_H, 10,
-                       ['#ffe24c', '#fff7e0', '#ffb14c']);
+            const nm = NEAR_MISS_LINES[state.nearMisses % NEAR_MISS_LINES.length];
+            popup(nm + ' +' + pts, o.x + o.w * 0.5 + 14, o.y - 12, '#ffe24c', { big: true });
+            const tx = state.truck.x + TRUCK_W * 0.45;
+            const ty = state.truck.y + TRUCK_H * 0.5;
+            spawnSpark(tx, ty, 14, ['#ffe24c', '#fff7e0', '#ffb14c', '#4ec5ff']);
+            spawnCapySpark(tx, ty, 6, getCostumeSeason().accent);
+            spawnRing(tx, ty, '#ffe24c');
             state.slowMo = Math.max(state.slowMo, SLOWMO_TIME);
-            shake(3, 0.1);
+            state.flashWhite = Math.max(state.flashWhite, 0.07);
+            shake(6, 0.14);
+            juicePunch(0.1);
             sfx.nearMiss(state.combo);
           }
         }
@@ -2188,25 +4016,23 @@
       if (!p.taken && aabb(hb.x, hb.y, hb.w, hb.h, p.x, p.y, p.w, p.h)) {
         p.taken = true;
         if (p.kind === 'shield') {
-          // Gold star — one-hit immunity. Replacing an existing shield
-          // grants the player a small consolation bonus instead.
-          if (state.shield) {
-            const pts = 25 * state.combo;
+          state.shieldsGrabbed += 1;
+          if (state.shield || state.armorSlots <= 0) {
+            const pts = 30 * state.combo;
             awardBonus(pts);
-            popup('+' + pts, p.x + p.w / 2, p.y, '#ffd24a');
+            popup('BONUS +' + pts, p.x + p.w / 2, p.y, '#ffd24a');
           } else {
             state.shield = true;
-            popup('SHIELD!', p.x + p.w / 2, p.y, '#ffd24a');
+            state.armorSlots -= 1;
+            popup('ARMOR!', p.x + p.w / 2, p.y, '#ffd24a');
             blip(880, 0.12, 'triangle', 0.06, 1320);
             blip(1200, 0.18, 'sine',     0.05, 1760);
-            // First-time tutorial hint — fades after a few seconds.
             if (!state.hint.shieldDone) {
               state.hint.shieldA = 1;
               state.hint.shieldDone = true;
               try { localStorage.setItem(TUTORIAL_KEY + '_shield', '1'); } catch {}
             }
           }
-          state.shieldsGrabbed += 1;
           addCombo(1);
           spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 22, ['#ffd24a', '#ffe24c', '#fff7e0']);
           state.flashWhite = Math.max(state.flashWhite, 0.14);
@@ -2214,17 +4040,25 @@
         } else {
           state.watersGrabbed += 1;
           addCombo(1);
-          const wasBoosting = state.boostTime > 0;
-          state.boostTime = Math.min(BOOST_MAX_TIME, state.boostTime + BOOST_TIME_PER);
-          // small score from water too, multiplied by combo
-          const pts = 5 * state.combo;
-          awardBonus(pts);
-          spawnSpark(p.x + p.w / 2, p.y + p.h / 2, 14, ['#4ec5ff', '#a8e6ff', '#fff7e0']);
-          popup(wasBoosting ? '+SIREN' : 'SIREN!', p.x + p.w / 2, p.y, '#a8e6ff');
-          state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.10);
-          shake(wasBoosting ? 3 : 6, 0.14);
-          sfx.pickup(state.combo);
-          if (!wasBoosting) sfx.boost();
+          const cap = getBoostCap();
+          const wasBoosting = state.boostTime > 0.2;
+          const fill = getWaterFill();
+          if (state.boostTime >= cap - 0.08) {
+            const pts = 22 * state.combo;
+            awardBonus(pts);
+            popup('FULL +' + pts, p.x + p.w / 2, p.y, '#a8e6ff');
+          } else {
+            state.boostTime = Math.min(cap, state.boostTime + fill);
+            const px = p.x + p.w / 2;
+            const py = p.y + p.h / 2;
+            spawnWaterSplash(px, py);
+            popup(wasBoosting ? '+' + fill.toFixed(1) + 's' : 'BOOST!', px, py, '#a8e6ff', { big: !wasBoosting });
+            state.flashWhite = Math.max(state.flashWhite, wasBoosting ? 0.04 : 0.12);
+            shake(wasBoosting ? 3 : 7, 0.14);
+            if (!wasBoosting) juicePunch(0.08);
+            sfx.pickup(state.combo);
+            if (!wasBoosting) sfx.boost();
+          }
           if (!state.hint.waterDone) {
             state.hint.waterDone = true;
             try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch {}
@@ -2264,8 +4098,9 @@
         state.comboGrace = Math.max(0, state.comboGrace - dt);
       } else {
         state.comboDecayClock += dt;
-        if (state.comboDecayClock >= COMBO_DECAY_STEP) {
-          state.comboDecayClock -= COMBO_DECAY_STEP;
+        const decayStep = COMBO_DECAY_STEP / (getDifficultyProfile().comboDecayMul || 1);
+        if (state.comboDecayClock >= decayStep) {
+          state.comboDecayClock -= decayStep;
           state.combo = Math.max(1, state.combo - 1);
           // Cool dim of the pill so the player notices it dropping.
           bumpComboPill();
@@ -2291,6 +4126,7 @@
     if (state.hint.waterDone) state.hint.waterA = Math.max(0, state.hint.waterA - dt * 1.4);
     // Shield hint lingers a bit longer (~5s) so the player has time to read it.
     if (state.hint.shieldA > 0) state.hint.shieldA = Math.max(0, state.hint.shieldA - dt * 0.65);
+    if (state.streakFlash > 0) state.streakFlash = Math.max(0, state.streakFlash - dt * 1.2);
 
     // ── Distance milestones ──────────────────────────────────────────
     // Milestones track METERS traveled, NOT score. This decouples them from
@@ -2301,14 +4137,19 @@
     if (distMeters >= state.nextMilestone) {
       const m = state.nextMilestone;
       addCombo(1);
-      const pts = 25 * state.combo;
+      const pts = Math.floor(25 * state.combo * (state.streakMulT > 0 ? state.streakMul : 1));
       awardBonus(pts);
-      // Snap past current distance — distance is pure (no feedback).
       const steps = Math.max(1, Math.floor((distMeters - m) / MILESTONE_M) + 1);
       state.nextMilestone = m + steps * MILESTONE_M;
-      showMilestone(m.toLocaleString() + 'm — +' + pts);
-      state.flashWhite = Math.max(state.flashWhite, 0.06);
-      shake(4, 0.18);
+      const special = SPECIAL_MILESTONES[m];
+      const mtxt = special ? special + '  +' + pts : m.toLocaleString() + 'm — +' + pts;
+      showMilestone(mtxt);
+      popup(mtxt, W * 0.5, GROUND_Y - 120, '#4ec5ff', { big: true, vy: -40 });
+      spawnRing(W * 0.5, GROUND_Y - 100, '#4ec5ff');
+      spawnCapySpark(W * 0.5, GROUND_Y - 110, 6, '#a8e6ff');
+      state.flashWhite = Math.max(state.flashWhite, 0.08);
+      shake(5, 0.2);
+      juicePunch(0.07);
       blip(680, 0.20, 'triangle', 0.06, 1320);
     }
 
@@ -2320,8 +4161,39 @@
       elCombo.classList.toggle('hot',   state.combo >= 8  && state.combo < 16);
       elCombo.classList.toggle('blaze', state.combo >= 16);
     }
-    setStyleWidth(elBoost, clamp((state.boostTime / BOOST_MAX_TIME) * 100, 0, 100).toFixed(1) + '%');
-    setText(elBoostLabel, state.boosting ? 'SIREN!' : 'SIREN');
+    const boostCap = getBoostCap();
+    setStyleWidth(elBoost, clamp((state.boostTime / boostCap) * 100, 0, 100).toFixed(1) + '%');
+    setText(elBoostLabel, state.boosting ? 'BOOST!' : 'BOOST');
+    if (elBoostTimer) {
+      if (state.boostTime > 0.05) {
+        elBoostTimer.classList.remove('hidden');
+        setText(elBoostTimer, state.boostTime.toFixed(1) + 's');
+      } else {
+        elBoostTimer.classList.add('hidden');
+      }
+    }
+    if (elArmorRow) {
+      const showArmor = state.shield || state.armorSlots > 0;
+      elArmorRow.classList.toggle('hidden', !showArmor);
+      elArmorRow.classList.toggle('active-armor', !!state.shield);
+      if (elArmorStatus) {
+        setText(elArmorStatus, state.shield
+          ? 'Blocks next hit'
+          : 'Pickup · one per run');
+      }
+    }
+    syncThemeHud();
+    syncPlayHints();
+    if (elHeatPill) {
+      if (state.heatTier >= 1) {
+        elHeatPill.classList.remove('hidden');
+        setText(elHeatPill, 'HEAT ×' + state.heatTier + (state.surgeT > 0 ? ' · RUSH' : ''));
+        elHeatPill.classList.toggle('surge', state.surgeT > 0);
+      } else {
+        elHeatPill.classList.add('hidden');
+        elHeatPill.classList.remove('surge');
+      }
+    }
 
     // Beat-your-best indicator. Hidden when there's no best to chase or
     // when far from it. Appears within 80% of best, turns into a juicy
@@ -2351,7 +4223,10 @@
       if (p.life <= 0) { state.particles.splice(i, 1); continue; }
       p.x += p.vx * dt; p.y += p.vy * dt;
       if (p.grav) p.vy += p.grav * dt;
-      if (p.kind === 'dust') {
+      if (p.kind === 'ring' && p.ringMax) {
+        const t = 1 - p.life / p.max;
+        p.size = 6 + (p.ringMax - 6) * t;
+      } else if (p.kind === 'dust') {
         p.size += dt * 14;
         p.vx *= (1 - dt * 1.6);
       }
@@ -2383,7 +4258,9 @@
 
     // Camera transform: shake + subtle truck-ride bob
     const sx = (Math.random() - 0.5) * state.shake.mag;
-    const sy = (Math.random() - 0.5) * state.shake.mag + state.cameraBob;
+    const punch = state.camPunch * 12;
+    const sy = (Math.random() - 0.5) * state.shake.mag + state.cameraBob
+      + Math.sin(performance.now() / 45) * punch;
     ctx.translate(sx, sy);
 
     drawSky();
@@ -2409,6 +4286,9 @@
     drawAchievements();
     drawBoostOverlay();
     drawHints();
+    drawRunStartFlash();
+    if (mode === 'title' || mode === 'gameover') drawTitleCapys();
+    drawHudScrim();
 
     ctx.restore();
 
@@ -2476,6 +4356,10 @@
     ctx.beginPath(); ctx.arc(mcx - mr * 0.32, mcy - mr * 0.18, 4, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(mcx - mr * 0.50, mcy + mr * 0.10, 3, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(mcx - mr * 0.18, mcy + mr * 0.35, 3, 0, Math.PI * 2); ctx.fill();
+    // Silly capy face on the moon (easter egg, cosmetic only).
+    ctx.globalAlpha = 0.55;
+    drawTinyCapy(mcx - mr * 0.15, mcy + mr * 0.05, mr * 0.22, { mouth: 'smile' });
+    ctx.globalAlpha = 1;
     ctx.restore();
 
     // Distant flame glow on the horizon — color shifts per mood.
@@ -2491,6 +4375,33 @@
     ctx.fillStyle = glow;
     ctx.fillRect(0, horizonY - 80, W, 80);
     ctx.restore();
+
+    // Costume-season wash — makes each run's sky read differently at a glance.
+    const season = getCostumeSeason();
+    if (season.skyWash) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = season.skyWash;
+      ctx.fillRect(0, 0, W, GROUND_Y);
+      ctx.restore();
+    }
+
+    // Aurora band — soft capy-colored curtains across the sky.
+    ctx.save();
+    const aur = performance.now() / 1400;
+    const [a1, a2] = [mood.glow[1], mood.glow[0]].map(hexToRgb);
+    for (let band = 0; band < 3; band++) {
+      const ay = 50 + band * 45 + Math.sin(aur + band) * 12;
+      const g = ctx.createLinearGradient(0, ay, W, ay + 60);
+      g.addColorStop(0, 'rgba(' + a1 + ', 0)');
+      g.addColorStop(0.35, 'rgba(' + a2 + ', ' + (0.12 + band * 0.04) + ')');
+      g.addColorStop(0.7, 'rgba(' + a1 + ', ' + (0.08 + band * 0.03) + ')');
+      g.addColorStop(1, 'rgba(' + a2 + ', 0)');
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = g;
+      ctx.fillRect(0, ay - 20, W, 80);
+    }
+    ctx.restore();
   }
   function hexToRgb(hex) {
     const v = hex.replace('#', '');
@@ -2502,7 +4413,11 @@
 
   // Building palette — drawn as silhouettes against the sunset.
   // Each entry: width range, height range, roof type, window pattern.
-  const BUILDING_ROOFS = ['flat', 'flat', 'dome', 'spire', 'water-tower', 'antenna', 'sign'];
+  const BUILDING_ROOFS = [
+    'flat', 'flat', 'dome', 'spire', 'water-tower', 'antenna', 'sign',
+    'capy-head', 'capy-head', 'neon-capy',
+  ];
+  const NEON_ROOF_MSGS = ['CAPY', 'SOAK', 'RIZZ', 'SPLASH', 'CHONK', 'NAP'];
 
   // Deterministic per-tile pseudo-random. Same seed = same layout, every
   // tile is unique but the city repeats predictably as it scrolls.
@@ -2520,6 +4435,12 @@
     const start = Math.floor(scroll / TILE) - 1;
     const offset = -(scroll - start * TILE);
     ctx.save();
+    const season = getCostumeSeason();
+    drawMegaCapySkyline(scroll, TILE * 3.2, baseY, 5000, {
+      color: '#2a1a5a',
+      windowColor: 'rgba(255, 200, 100, 0.55)',
+      neon: season.neon,
+    });
     for (let i = 0; i < 6; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
@@ -2542,6 +4463,11 @@
     const start = Math.floor(scroll / TILE) - 1;
     const offset = -(scroll - start * TILE);
     ctx.save();
+    drawMegaCapySkyline(scroll, TILE * 3.5, baseY, 9000, {
+      color: '#12051f',
+      windowColor: 'rgba(255, 170, 80, 0.4)',
+      scale: 0.78,
+    });
     for (let i = 0; i < 5; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
@@ -2579,6 +4505,9 @@
       rrect(cursor, top, w, h, Math.min(8, w * 0.12)); ctx.fill();
       // roof details
       drawBuildingRoof(cursor, top, w, roof, opts.color, seed * 7 + b);
+      if (tileRand(seed, 90 + b) > 0.78) {
+        drawCapyFacadeEars(cursor, top, w, opts.color);
+      }
       // window grid
       ctx.fillStyle = opts.windowColor;
       const wsX = 6 + tileRand(seed, 60 + b) * 6;
@@ -2592,13 +4521,18 @@
           if (lit > 0.62) {
             let a = 1;
             if (opts.flicker) {
-              // gentle flicker on ~1/8 of lit windows
               const flickerHash = (Math.floor(wx) ^ Math.floor(wy * 31)) & 7;
               if (flickerHash === 0) a = 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 300 + wx * 0.07));
             }
-            ctx.globalAlpha = a;
-            ctx.fillRect(wx, wy, winW, winH);
-            ctx.globalAlpha = 1;
+            if (tileRand(seed, wx * 0.1 + wy) > 0.58) {
+              ctx.globalAlpha = a;
+              drawProceduralBlindWindow(wx, wy, winW, winH, seed + wx + wy);
+              ctx.globalAlpha = 1;
+            } else {
+              ctx.globalAlpha = a;
+              ctx.fillRect(wx, wy, winW, winH);
+              ctx.globalAlpha = 1;
+            }
           }
         }
       }
@@ -2631,23 +4565,70 @@
       ctx.fillStyle = blink ? '#ff5a3c' : 'rgba(255,90,60,0.25)';
       ctx.beginPath(); ctx.arc(x + w * 0.5, top - 26, 3, 0, Math.PI * 2); ctx.fill();
     } else if (kind === 'sign') {
-      rrect(x + w * 0.1, top - 18, w * 0.8, 12, 2); ctx.fill();
-      // sign face — neon-ish blink
-      const on = (performance.now() / 800 + seed) % 2 < 1;
-      ctx.fillStyle = on ? '#ff5a8a' : '#5a2a4a';
-      rrect(x + w * 0.16, top - 16, w * 0.68, 8, 2); ctx.fill();
+      const msg = NEON_ROOF_MSGS[Math.floor(seed * 3) % NEON_ROOF_MSGS.length];
+      if (w < 54) {
+        drawNeonText(x + w / 2, top - 8, msg, seed, ['#ff5a8a', '#ffd24a'], { backdrop: true, fontPx: 8, maxW: w - 6 });
+      } else {
+        const pw = Math.max(56, w * 0.85);
+        const pcx = x + w * 0.5;
+        const pcy = top - 10;
+        drawIconTextPlate(pcx, pcy, pw, 16, '#150827');
+        drawNeonText(signTextColumnCenter(pcx, pcy, pw), pcy, msg, seed, ['#ff5a8a', '#ffd24a'], {
+          backdrop: true, maxW: pw - SIGN_ICON_W - 4, fontPx: 9,
+        });
+      }
+    } else if (kind === 'capy-head') {
+      const ear = w * 0.2;
+      ctx.beginPath();
+      ctx.ellipse(x + w * 0.28, top - ear * 0.5, ear, ear * 0.75, 0, 0, Math.PI * 2);
+      ctx.ellipse(x + w * 0.72, top - ear * 0.5, ear, ear * 0.75, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x + w / 2, top + 2, w * 0.42, Math.PI, 0);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 200, 120, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, top + w * 0.12, w * 0.14, w * 0.09, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === 'neon-capy') {
+      const msg = NEON_ROOF_MSGS[Math.floor(seed * 5 + 1) % NEON_ROOF_MSGS.length];
+      if (w < 58) {
+        drawNeonText(x + w / 2, top - 9, msg, seed + w, ['#4ec5ff', '#a8e6ff'], { backdrop: true, fontPx: 8, maxW: w - 4 });
+      } else {
+        const pw = Math.max(60, w * 0.88);
+        const ph = 18;
+        const pcx = x + w * 0.5;
+        const pcy = top - 12;
+        drawIconTextPlate(pcx, pcy, pw, ph, '#150827');
+        drawTinyCapy(signIconCenter(pcx, pcy, pw), pcy, Math.min(4.5, w * 0.07), { mouth: 'smile' });
+        drawNeonText(signTextColumnCenter(pcx, pcy, pw), pcy, msg, seed + w, ['#4ec5ff', '#a8e6ff'], {
+          backdrop: true, maxW: pw - SIGN_ICON_W - 4, fontPx: 9,
+        });
+      }
     }
     // 'flat' is the no-op default
   }
 
+  // Rounded "ears" on a facade — building reads as capy-shaped.
+  function drawCapyFacadeEars(x, top, w, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    const ear = Math.min(14, w * 0.18);
+    ctx.beginPath();
+    ctx.ellipse(x + w * 0.22, top + 6, ear, ear * 0.7, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + w * 0.78, top + 6, ear, ear * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawRoad() {
-    // Sidewalk strip
-    ctx.fillStyle = '#3b2a7a';
+    const season = getCostumeSeason();
+    ctx.fillStyle = season.sidewalk || '#3b2a7a';
     ctx.fillRect(0, GROUND_Y, W, 10);
+    drawSidewalkChalkScroll();
     ctx.fillStyle = '#1a0f3a';
     ctx.fillRect(0, GROUND_Y + 8, W, 3);
-    // road
-    ctx.fillStyle = '#0a0623';
+    ctx.fillStyle = season.road || '#0a0623';
     ctx.fillRect(0, GROUND_Y + 11, W, H - GROUND_Y - 11);
     // dashed lane line
     ctx.fillStyle = '#fff7e0';
@@ -2668,7 +4649,46 @@
     ctx.restore();
   }
 
+  // Chalk capy outlines on the curb — scrolls with the road parallax.
+  function drawSidewalkChalkScroll() {
+    const period = 300;
+    const offset = -pmod(state.bg.road * 0.9, period);
+    ctx.save();
+    for (let x = offset - period; x < W + period; x += period) {
+      const tile = Math.floor((x + state.bg.road) / period);
+      if (tile % 3 !== 0) continue;
+      const cx = x + 50;
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = 'rgba(255, 247, 224, 0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.ellipse(cx, GROUND_Y + 4, 14, 9, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.45;
+      drawTinyCapy(cx, GROUND_Y + 1, 6, { mouth: 'smile', color: 'rgba(200,180,255,0.9)' });
+    }
+    ctx.restore();
+  }
+
   // Dark vignette above the road so ground obstacles always pop visually.
+  function drawHudScrim() {
+    if (mode !== 'playing' && mode !== 'dying') return;
+    ctx.save();
+    const topG = ctx.createLinearGradient(0, 0, 0, 108);
+    topG.addColorStop(0, 'rgba(10, 6, 35, 0.68)');
+    topG.addColorStop(1, 'rgba(10, 6, 35, 0)');
+    ctx.fillStyle = topG;
+    ctx.fillRect(0, 0, W, 108);
+    const botG = ctx.createLinearGradient(0, H - 120, 0, H);
+    botG.addColorStop(0, 'rgba(10, 6, 35, 0)');
+    botG.addColorStop(1, 'rgba(10, 6, 35, 0.58)');
+    ctx.fillStyle = botG;
+    ctx.fillRect(0, H - 120, W, 120);
+    ctx.restore();
+  }
+
   function drawDangerVignette() {
     ctx.save();
     const g = ctx.createLinearGradient(0, GROUND_Y - 80, 0, GROUND_Y);
@@ -2679,11 +4699,63 @@
     ctx.restore();
   }
 
+  // Title / game-over — capy crowd on the curb (DOM owns the big logo text).
+  function drawTitleCapys() {
+    const t = performance.now() / 1000;
+    const season = getCostumeSeason();
+    const onTitle = mode === 'title';
+    ctx.save();
+    ctx.globalAlpha = onTitle ? 0.38 : 0.82;
+    for (let i = 0; i < 13; i++) {
+      const x = 50 + i * ((W - 100) / 12);
+      const bob = Math.sin(t * 3 + i * 0.7) * 3;
+      const y = GROUND_Y - 22 + bob;
+      const hats = ['party', 'fd', 'melon', 'sunglasses', 'party', undefined];
+      drawTinyCapy(x, y - 10, 9, {
+        mouth: i % 3 === 0 ? 'o' : 'smile',
+        hatType: hats[i % hats.length],
+      });
+      if (!onTitle && i % 2 === 0) {
+        ctx.strokeStyle = '#1a0f3a';
+        ctx.lineWidth = 2;
+        const wave = Math.sin(t * 5 + i) * 0.25;
+        ctx.beginPath();
+        ctx.moveTo(x + 8, y - 4);
+        ctx.lineTo(x + 16 + wave * 4, y - 14);
+        ctx.stroke();
+      }
+    }
+    if (!onTitle) {
+      ctx.globalAlpha = 0.9;
+      drawTinyCapy(W * 0.5, GROUND_Y - 36, 16, { mouth: 'o', hatType: 'fd', color: season.sidewalk || '#b4884f' });
+      ctx.font = 'bold 12px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255, 247, 224, 0.75)';
+      ctx.fillText('RIZZLE WILL BE OK (PROBABLY)', W * 0.5, GROUND_Y - 56);
+    }
+    ctx.restore();
+  }
+
   // ─── Obstacles & pickups ──────────────────────────────────────────────
   function drawObstacles() {
     for (const o of state.obstacles) {
-      Sprite.draw('fire', o.x, o.y, o.w, o.h, { phase: o.phase, variant: o.variant });
+      Sprite.draw('fire', o.x, o.y, o.w, o.h, {
+        phase: o.phase,
+        variant: o.variant,
+        armored: fireIsArmored(o.variant),
+      });
     }
+  }
+  function drawPickupTag(x, y, label, color) {
+    ctx.save();
+    ctx.font = 'bold 11px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    const tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = 'rgba(26, 15, 58, 0.85)';
+    rrect(x - tw / 2, y, tw, 16, 5); ctx.fill();
+    ctx.fillStyle = color;
+    ctx.fillText(label, x, y + 12);
+    ctx.restore();
   }
   function drawPickups() {
     for (const p of state.pickups) {
@@ -2691,9 +4763,11 @@
       if (p.kind === 'shield') {
         drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, '#ffd24a');
         drawShieldStar(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w * 0.55, p.phase);
+        drawPickupTag(p.x + p.w / 2, p.y + p.h + bob + 6, 'ARMOR', '#ffd24a');
       } else {
         drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, '#4ec5ff');
         Sprite.draw('water', p.x, p.y + bob, p.w, p.h, { phase: p.phase });
+        drawPickupTag(p.x + p.w / 2, p.y + p.h + bob + 6, 'BOOST', '#4ec5ff');
       }
     }
   }
@@ -2807,6 +4881,8 @@
       blink: t.blinking > 0,
       airborne: !t.onGround,
       boost: state.boosting,
+      shield: state.shield || state.shieldFlash > 0,
+      mood: (state.mood && state.mood.id) || 'dusk',
     });
     ctx.restore();
   }
@@ -2818,7 +4894,24 @@
       ctx.save();
       ctx.globalAlpha = a;
       ctx.fillStyle = p.color;
-      if (p.kind === 'dust' || p.kind === 'flame') {
+      if (p.kind === 'ring') {
+        const grow = 1 - a;
+        const r = p.size + (p.ringMax - p.size) * grow;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 3 * a;
+        ctx.globalAlpha = a * 0.85;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (p.kind === 'capy') {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, p.size * 1.1, p.size * 0.85, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#1a0f3a';
+        ctx.fillRect(p.x - p.size * 0.35, p.y - p.size * 0.1, p.size * 0.22, p.size * 0.12);
+        ctx.fillRect(p.x + p.size * 0.12, p.y - p.size * 0.1, p.size * 0.22, p.size * 0.12);
+      } else if (p.kind === 'dust' || p.kind === 'flame') {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
@@ -2831,41 +4924,41 @@
   function drawTelegraphs() {
     for (const t of state.telegraphs) {
       const fade = clamp(t.life / t.max, 0, 1);
-      // hold full alpha for the first 60%, then fade out
       const a = fade > 0.4 ? 1 : fade / 0.4;
       ctx.save();
       ctx.globalAlpha = a;
-      // pulsing right-side streak trail (lighter blend so it glows)
+      ctx.font = 'bold 24px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      const labelW = ctx.measureText(t.text).width + 32;
+      const chevPad = 36;
+      const anchorX = Math.min(Math.max(t.x, labelW * 0.5 + 18), W - labelW * 0.5 - chevPad - 12);
+      const bx = anchorX - labelW / 2;
+      const by = t.y - 24;
       ctx.globalCompositeOperation = 'lighter';
       const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 90);
       ctx.fillStyle = t.color;
-      ctx.globalAlpha = a * 0.35 * pulse;
-      ctx.fillRect(t.x + 60, t.y - 6, W - t.x, 12);
+      ctx.globalAlpha = a * 0.32 * pulse;
+      const trailX = Math.max(anchorX + 40, bx + labelW);
+      ctx.fillRect(trailX, t.y - 6, W - trailX, 12);
       ctx.globalAlpha = a;
       ctx.globalCompositeOperation = 'source-over';
-      // banner bg
-      ctx.font = 'bold 30px ui-rounded, Nunito, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      const labelW = ctx.measureText(t.text).width + 32;
-      ctx.fillStyle = 'rgba(26, 15, 58, 0.85)';
-      rrect(t.x - labelW / 2, t.y - 26, labelW, 48, 10); ctx.fill();
+      ctx.fillStyle = 'rgba(26, 15, 58, 0.88)';
+      rrect(bx, by, labelW, 44, 10); ctx.fill();
       ctx.lineWidth = 3; ctx.strokeStyle = t.color;
-      rrect(t.x - labelW / 2, t.y - 26, labelW, 48, 10); ctx.stroke();
-      // text
+      rrect(bx, by, labelW, 44, 10); ctx.stroke();
       ctx.fillStyle = t.color;
-      ctx.lineWidth = 5; ctx.strokeStyle = '#1a0f3a';
-      ctx.strokeText(t.text, t.x, t.y + 8);
-      ctx.fillText(t.text, t.x, t.y + 8);
-      // tiny chevrons pointing right (toward the incoming pattern)
+      ctx.lineWidth = 4; ctx.strokeStyle = '#1a0f3a';
+      ctx.strokeText(t.text, anchorX, t.y + 6);
+      ctx.fillText(t.text, anchorX, t.y + 6);
       ctx.strokeStyle = t.color;
       ctx.lineWidth = 3;
       for (let i = 0; i < 3; i++) {
-        const cx = t.x + labelW / 2 + 14 + i * 12;
+        const cx = Math.min(bx + labelW + 10 + i * 11, W - 22);
         const wob = Math.sin(performance.now() / 120 + i) * 2;
         ctx.beginPath();
-        ctx.moveTo(cx,     t.y - 8 + wob);
-        ctx.lineTo(cx + 7, t.y + wob);
-        ctx.lineTo(cx,     t.y + 8 + wob);
+        ctx.moveTo(cx,     t.y - 7 + wob);
+        ctx.lineTo(cx + 6, t.y + wob);
+        ctx.lineTo(cx,     t.y + 7 + wob);
         ctx.stroke();
       }
       ctx.restore();
@@ -2873,57 +4966,38 @@
   }
   function drawAchievements() {
     if (state.achievements.length === 0) return;
-    let stackY = 95;
+    let stackY = 96;
     for (const a of state.achievements) {
       const t = a.life / a.max;
-      // intro slide (first 0.25s), hold, then fade out (last 0.5s)
       const slideIn = clamp((1 - t) / 0.1, 0, 1);
       const fadeOut = clamp(t / (0.5 / a.max), 0, 1);
       const alpha = Math.min(slideIn, fadeOut);
-      const dx = (1 - slideIn) * 80; // slide from right
-      const cx = W / 2 + dx;
+      const dx = (1 - slideIn) * 60;
+      const cx = W * 0.5 + dx;
+      const label = '★ FIRST — ' + a.label;
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.font = 'bold 22px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.font = 'bold 20px ui-rounded, Nunito, system-ui, sans-serif';
       ctx.textAlign = 'center';
-      const w = Math.max(280, ctx.measureText(a.label).width + 80);
-      const h = 56;
+      const w = Math.min(W - 32, Math.max(260, ctx.measureText(label).width + 48));
+      const h = 48;
       const x = cx - w / 2;
       const y = stackY;
-      // glow / gold border
       const grad = ctx.createLinearGradient(x, y, x + w, y);
-      grad.addColorStop(0,   '#ffd24a');
+      grad.addColorStop(0, '#ffd24a');
       grad.addColorStop(0.5, '#ffe24c');
-      grad.addColorStop(1,   '#ffd24a');
+      grad.addColorStop(1, '#ffd24a');
       ctx.shadowColor = '#ffd24a';
-      ctx.shadowBlur = 22 * alpha;
+      ctx.shadowBlur = 18 * alpha;
       ctx.fillStyle = 'rgba(26, 15, 58, 0.92)';
       rrect(x, y, w, h, 12); ctx.fill();
       ctx.shadowBlur = 0;
       ctx.lineWidth = 3; ctx.strokeStyle = grad;
       rrect(x, y, w, h, 12); ctx.stroke();
-      // label
       ctx.fillStyle = grad;
-      ctx.lineWidth = 5; ctx.strokeStyle = '#1a0f3a';
-      ctx.strokeText(a.label, cx + 14, y + 30);
-      ctx.fillText(a.label, cx + 14, y + 30);
-      // tiny "FIRST!" badge on the left
-      ctx.font = 'bold 11px ui-rounded, Nunito, system-ui, sans-serif';
-      ctx.fillStyle = '#ffd24a';
-      ctx.fillRect(x + 12, y + 18, 44, 20);
-      ctx.fillStyle = '#1a0f3a';
-      ctx.fillText('FIRST', x + 34, y + 32);
-      // small star icon
-      const sx = x + 78, sy = y + 28;
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      for (let i = 0; i < 10; i++) {
-        const r = i % 2 ? 4 : 9;
-        const ang = -Math.PI / 2 + (i * Math.PI) / 5;
-        ctx.lineTo(sx + Math.cos(ang) * r, sy + Math.sin(ang) * r);
-      }
-      ctx.closePath();
-      ctx.fill();
+      ctx.lineWidth = 4; ctx.strokeStyle = '#1a0f3a';
+      ctx.strokeText(label, cx, y + 30);
+      ctx.fillText(label, cx, y + 30);
       ctx.restore();
       stackY += h + 8;
     }
@@ -2931,17 +5005,55 @@
   function drawPopups() {
     for (const p of state.popups) {
       const a = clamp(p.life / p.max, 0, 1);
+      const pop = a < 0.85 ? 1 + (1 - a / 0.85) * (p.big ? 0.45 : 0.25) : 1;
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.font = 'bold 22px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.translate(p.x, p.y);
+      ctx.scale(pop, pop);
+      ctx.font = (p.big ? 'bold 30px' : 'bold 22px') + ' ui-rounded, Nunito, system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.lineWidth = 4;
+      ctx.lineWidth = p.big ? 5 : 4;
       ctx.strokeStyle = '#1a0f3a';
-      ctx.strokeText(p.text, p.x, p.y);
+      ctx.strokeText(p.text, 0, 0);
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, p.x, p.y);
+      ctx.fillText(p.text, 0, 0);
       ctx.restore();
     }
+  }
+
+  function drawRunStartFlash() {
+    if (mode !== 'playing' || state.runStartT <= 0) return;
+    const t = state.runStartT;
+    const season = getCostumeSeason();
+    const label = t > RUN_START_TIME * 0.55 ? 'READY…' : 'GO!';
+    const scale = 0.6 + (1 - t / RUN_START_TIME) * 1.1;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, t * 1.8);
+    ctx.translate(W * 0.5, H * 0.36);
+    ctx.scale(scale, scale);
+    ctx.font = 'bold 56px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#1a0f3a';
+    ctx.strokeText(label, 0, 0);
+    ctx.fillStyle = label === 'GO!' ? '#ffe24c' : season.accent;
+    ctx.fillText(label, 0, 0);
+    if (label === 'GO!') {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.arc(0, 0, 70, 0, Math.PI * 2);
+      ctx.fillStyle = season.accent;
+      ctx.fill();
+      if (hasJumpAssist()) {
+        ctx.globalAlpha = Math.min(1, t * 2);
+        ctx.font = 'bold 20px ui-rounded, Nunito, system-ui, sans-serif';
+        ctx.fillStyle = '#fff7e0';
+        ctx.fillText('SPACEBAR TO JUMP', 0, 38);
+        drawTinyCapy(0, 58, 10, { mouth: 'o', hatType: 'fd' });
+      }
+    }
+    ctx.restore();
   }
 
   function drawBoostOverlay() {
@@ -2958,25 +5070,26 @@
 
   function drawHints() {
     if (mode !== 'playing') return;
-    if (state.hint.jumpA   > 0) hintCard(W * 0.5, 120, 'TAP / SPACE to JUMP',          state.hint.jumpA,   '#fff7e0');
-    if (state.hint.waterA  > 0) hintCard(W * 0.5, 162, 'Grab WATER for SIREN BOOST',   state.hint.waterA,  '#a8e6ff');
-    if (state.hint.shieldA > 0) hintCard(W * 0.5, 204, 'SHIELD: survive ONE hit',      state.hint.shieldA, '#ffd24a');
-  }
-  function hintCard(cx, cy, text, alpha, accent) {
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.font = 'bold 18px ui-rounded, Nunito, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    const padX = 18, padY = 9;
-    const m = ctx.measureText(text);
-    const w = m.width + padX * 2;
-    const h = 28 + padY;
-    ctx.fillStyle = 'rgba(26, 15, 58, 0.78)';
-    rrect(cx - w / 2, cy - h / 2, w, h, 14); ctx.fill();
-    strokeShape(accent, 2);
-    ctx.fillStyle = accent;
-    ctx.fillText(text, cx, cy + 5);
-    ctx.restore();
+    if (state.streakFlash > 0) {
+      const a = clamp(state.streakFlash, 0, 1);
+      const label = state.streakMulT > 0
+        ? 'ON FIRE ×' + state.cleanStreak + '  +' + Math.round((state.streakMul - 1) * 100) + '%'
+        : 'STREAK ×' + state.cleanStreak;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.font = 'bold 17px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      const tw = ctx.measureText(label).width + 28;
+      const bx = W * 0.5 - tw / 2;
+      const by = 54;
+      ctx.fillStyle = 'rgba(26, 15, 58, 0.82)';
+      rrect(bx, by, tw, 32, 8); ctx.fill();
+      ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2;
+      rrect(bx, by, tw, 32, 8); ctx.stroke();
+      ctx.fillStyle = '#ffd24a';
+      ctx.fillText(label, W * 0.5, by + 22);
+      ctx.restore();
+    }
   }
 
   // ═════════════════════════════════════════════════════════════════════
@@ -2989,13 +5102,13 @@
     const phase   = opts.phase   || 0;
     const v = FIRE_VARIANTS[variant] || FIRE_VARIANTS.torch;
     if (variant === 'pit') {
-      drawFirePitSprite(x, y, w, h, phase, v);
+      drawFirePitSprite(x, y, w, h, phase, v, opts);
     } else {
-      drawFlameSprite(x, y, w, h, phase, v, variant);
+      drawFlameSprite(x, y, w, h, phase, v, variant, opts);
     }
   });
 
-  function drawFlameSprite(x, y, w, h, phase, v, variant) {
+  function drawFlameSprite(x, y, w, h, phase, v, variant, opts) {
     const wob = Math.sin(phase) * 4;
     ctx.save();
     // base shadow
@@ -3039,10 +5152,22 @@
       ctx.fill();
       ctx.globalAlpha = 1;
     }
+    if (opts && opts.armored) {
+      ctx.strokeStyle = '#8ec5ff';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([5, 4]);
+      rrect(x + 5, y + 6, w - 10, h - 12, 8);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = 'bold 10px ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#8ec5ff';
+      ctx.fillText('JUMP', x + w / 2, y + 16);
+    }
     ctx.restore();
   }
 
-  function drawFirePitSprite(x, y, w, h, phase, v) {
+  function drawFirePitSprite(x, y, w, h, phase, v, opts) {
     ctx.save();
     // base shadow
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -3078,6 +5203,34 @@
       ctx.closePath();
       ctx.fill();
     }
+    // Silly capy eyes peeking from the pit (center flame only).
+    if (count >= 2) {
+      const mid = x + w / 2;
+      const peek = 0.5 + 0.5 * Math.sin(phase * 2.1);
+      ctx.globalAlpha = 0.55 + peek * 0.35;
+      drawTinyCapy(mid, y + h - 22, Math.min(5, w * 0.08), {
+        mouth: peek > 0.85 ? 'o' : 'smile',
+        eyeOffset: Math.sin(phase * 3) * 0.5,
+      });
+      ctx.globalAlpha = 1;
+    }
+    if (Math.sin(phase * 0.7) > 0.92) {
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = 'rgba(200, 200, 220, 0.6)';
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y - 8, w * 0.25, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (opts && opts.armored) {
+      ctx.strokeStyle = '#8ec5ff';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([5, 4]);
+      rrect(x + 4, y + 4, w - 8, h - 8, 6);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.restore();
   }
 
@@ -3105,11 +5258,12 @@
     // sheen
     ctx.fillStyle = 'rgba(255, 247, 224, 0.7)';
     ctx.fillRect(x + 12, y + 20, 4, h - 24);
-    // big "H2O" mark
+    // capy peeking over the rim
+    drawTinyCapy(x + w / 2, y + 8, w * 0.14, { mouth: 'smile' });
     ctx.fillStyle = '#1a0f3a';
-    ctx.font = 'bold 12px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.font = 'bold 9px ui-rounded, Nunito, system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('H₂O', x + w / 2, y + h - 10);
+    ctx.fillText('SPLASH', x + w / 2, y + h - 8);
     ctx.restore();
   });
 
@@ -3175,11 +5329,28 @@
       ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
-    // "FD" decal on tank
+    // "FD" decal on tank + hero nameplate
     ctx.fillStyle = '#fff7e0';
     ctx.font = 'bold 16px ui-rounded, Nunito, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('FD', x + w * 0.42, y + h * 0.48);
+    ctx.font = 'bold 9px ui-rounded, Nunito, system-ui, sans-serif';
+    ctx.fillStyle = '#ffd24a';
+    ctx.fillText('RIZZLE-1', x + w * 0.42, y + h * 0.38);
+    // rubber duck mascot on the ladder
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.ellipse(x + w * 0.58, y + 20, 5, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + w * 0.59, y + 18, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ff8a3c';
+    ctx.fillRect(x + w * 0.6, y + 18, 2, 1);
+    // copilot capy peeking in rear window (tank side)
+    ctx.globalAlpha = 0.85;
+    drawTinyCapy(x + w * 0.12, y + 42, 7, { mouth: 'o', hatType: 'melon' });
+    ctx.globalAlpha = 1;
 
     // CAB (right side)
     ctx.fillStyle = '#ff5a3c';
@@ -3199,7 +5370,31 @@
     // RIZZLE — sits in the cab, head pokes WAY above
     const capCx = x + w * 0.78;
     const capCy = y + 4 - (airborne ? 2 : 0);
-    drawRizzle(capCx, capCy, 38, { blink, arm: 'wheel' });
+    drawRizzle(capCx, capCy, 38, {
+      blink,
+      arm: 'wheel',
+      boost,
+      shield: !!opts.shield,
+      moodId: opts.mood || 'dusk',
+    });
+
+    if (boost) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(78, 197, 255, 0.55)';
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 4; i++) {
+        const a = now / 180 + i * 1.2;
+        ctx.beginPath();
+        ctx.moveTo(capCx - 8, capCy + 20);
+        ctx.quadraticCurveTo(
+          capCx + Math.cos(a) * 28, capCy + 30 + Math.sin(a) * 10,
+          capCx + 20 + i * 4, capCy + 55
+        );
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
 
     // SIREN — base dome + rotating beam (more dramatic during boost)
     const sirenPulse = (now / 220) % (Math.PI * 2);
@@ -3353,6 +5548,35 @@
 
     // HELMET
     drawFireHelmet(cx, cy, s, outline);
+    if (opts.shield) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 120);
+      ctx.fillStyle = 'rgba(255, 226, 76, ' + pulse + ')';
+      ctx.beginPath();
+      ctx.arc(cx, cy - s * 1.05, s * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (opts.moodId === 'night') {
+      ctx.fillStyle = '#4ec5ff';
+      ctx.fillRect(cx - s * 0.55, cy + s * 0.35, s * 1.1, s * 0.12);
+    } else if (opts.moodId === 'inferno') {
+      ctx.fillStyle = '#ff5a3c';
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.arc(cx, cy + s * 0.5, s * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    if (opts.boost) {
+      ctx.strokeStyle = 'rgba(168, 230, 255, 0.8)';
+      ctx.lineWidth = Math.max(2, s * 0.06);
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.5, cy + s * 0.2);
+      ctx.quadraticCurveTo(cx - s * 0.9, cy + s * 0.5, cx - s * 0.7, cy + s * 0.95);
+      ctx.stroke();
+    }
 
     // ARMS gripping wheel
     if (opts.arm === 'wheel') {
@@ -3411,20 +5635,6 @@
   }
 
   // ═════════════════════════════════════════════════════════════════════
-  //   COSMETICS: register layered cosmetic slots ready for future content.
-  //   Today, nothing is added — the world stays clean. Later, drop in
-  //   capybara billboards / sky parade / sidewalk easter eggs here:
-  //
-  //     Cosmetics.add({
-  //       layer: 'sky', x: 200, y: 80, vx: -20, parallax: 0,
-  //       draw: ({x, y, phase}) => { drawCapybaraBalloon(x, y, phase); }
-  //     });
-  //
-  //   The game loop already calls Cosmetics.update + draw on every layer;
-  //   adding content is purely additive.
-  // ═════════════════════════════════════════════════════════════════════
-
-  // ═════════════════════════════════════════════════════════════════════
   //   MAIN LOOP
   // ═════════════════════════════════════════════════════════════════════
   let lastT = performance.now();
@@ -3440,6 +5650,7 @@
       if (mode === 'playing') gameDt = dt * SLOWMO_FACTOR;
     }
     try {
+      tickSoundtrack();
       update(gameDt);
       render();
     } catch (err) {
@@ -3496,5 +5707,7 @@
   // capybara-stuffed backdrop while the player decides to hit PLAY.
   resetRun();
   setMode('title');
+  syncMuteButton();
+  startSoundtrack();
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();

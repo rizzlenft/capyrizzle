@@ -36,8 +36,11 @@ function array(name) {
   const re = new RegExp('const\\s+' + name + '\\s*=\\s*(\\[[\\s\\S]*?\\n  \\])\\s*;');
   const m = SRC.match(re);
   if (!m) throw new Error('missing array: ' + name);
+  const minDx = num('MIN_MULTI_FIRE_DX');
   // eslint-disable-next-line no-new-func
-  return Function('"use strict"; return (' + m[1] + ');')();
+  return Function(
+    '"use strict"; const MIN_MULTI_FIRE_DX = ' + minDx + '; return (' + m[1] + ');',
+  )();
 }
 
 const GROUND_Y     = num('GROUND_Y');
@@ -49,9 +52,11 @@ const JUMP_V       = num('JUMP_V');
 const APEX_GRAV_MUL = num('APEX_GRAV_MUL');
 const APEX_BAND    = num('APEX_BAND');
 const CROUCH_TIME  = num('CROUCH_TIME');
-const WARMUP_SPEED = num('WARMUP_SPEED');
-const MAX_SPEED    = num('MAX_SPEED');
-const BOOST_MULT   = num('BOOST_MULT');
+const WARMUP_SPEED       = num('WARMUP_SPEED');
+const MAX_SPEED          = num('MAX_SPEED');
+const ABSOLUTE_MAX_SPEED = num('ABSOLUTE_MAX_SPEED');
+const SURGE_SPEED_MUL    = num('SURGE_SPEED_MUL');
+const BOOST_MULT         = num('BOOST_MULT');
 const MILESTONE_M  = num('MILESTONE_M');
 const FIRE_VARIANTS = obj('FIRE_VARIANTS');
 const PATTERNS      = array('PATTERNS');
@@ -67,26 +72,24 @@ const HB_INNER_PAD = 6;
 function effTruckW() { return TRUCK_HB_W - HB_INNER_PAD * 2; }
 function effFireW(w)  { return (w - 20) - HB_INNER_PAD * 2; } // fire hb is w-20
 
-// ── Simulate jump trajectory ──
-// Returns { airtime, peakUp } given dt step.
-function simulateJump(dt = 0.001) {
-  let y = 0;        // 0 = ground
-  let vy = JUMP_V;  // launches up (negative)
-  let t = 0;
-  let peakUp = 0;
+function simulateJumpVy(vy0, dt = 0.001) {
+  let y = 0, vy = vy0, t = 0, peakUp = 0;
   while (true) {
     const grav = Math.abs(vy) < APEX_BAND ? GRAVITY * APEX_GRAV_MUL : GRAVITY;
     vy += grav * dt;
-    y  += vy * dt;
-    t  += dt;
-    if (y < peakUp) peakUp = y; // y goes negative = up
+    y += vy * dt;
+    t += dt;
+    if (y < peakUp) peakUp = y;
     if (y >= 0) break;
-    if (t > 5) break; // safety
+    if (t > 5) break;
   }
   return { airtime: t, peakUp: -peakUp };
 }
 
-const JUMP = simulateJump();
+const JUMP_CUT_V = num('JUMP_CUT_V');
+const JUMP = simulateJumpVy(JUMP_V);
+const SHORT_JUMP = simulateJumpVy(JUMP_CUT_V);
+const MIN_MULTI_FIRE_DX = num('MIN_MULTI_FIRE_DX');
 // Effective airtime usable to clear a fire = airtime minus crouch (player
 // anticipates by crouching) — actually crouch happens BEFORE liftoff so it
 // doesn't reduce airtime, but it does delay the response. Assume perfect
@@ -121,7 +124,7 @@ function canDoubleJump(dxBetween, fireA, fireB, speed) {
   // Simplified: dxBetween/speed >= overlapA + minCycle.
   const overlapA = (effTruckW() + fhbA) / speed;
   const overlapB = (effTruckW() + fhbB) / speed;
-  const cycleBuffer = CROUCH_TIME + 0.03; // crouch + 1-2 frames buffer
+  const cycleBuffer = CROUCH_TIME + 0.05; // crouch + timing buffer (matches gap-audit)
   // We need the truck to land BEFORE B's leading edge arrives, and have
   // a full new jump airtime cover B.
   // Distance from start-of-overlap A to start-of-overlap B = dxBetween.
@@ -143,12 +146,31 @@ function canDoubleJump(dxBetween, fireA, fireB, speed) {
 const SPEEDS = [
   { label: 'WARMUP', speed: WARMUP_SPEED, requireMultiJumpable: true },
   { label: 'MAX',    speed: MAX_SPEED,    requireMultiJumpable: true },
+  { label: 'ABS',    speed: ABSOLUTE_MAX_SPEED, requireMultiJumpable: true },
+  { label: 'SURGE',  speed: ABSOLUTE_MAX_SPEED * SURGE_SPEED_MUL, requireMultiJumpable: true },
 ];
-// Boost only relaxes multi-fire spacing; single-fire still must be clearable
-// in case the player runs out of boost mid-pattern.
 const BOOST_MAX_SPEED = MAX_SPEED * BOOST_MULT;
+const BOOST_ABS_SPEED = ABSOLUTE_MAX_SPEED * BOOST_MULT;
+const surgeSpeed = ABSOLUTE_MAX_SPEED * SURGE_SPEED_MUL;
+const minCycle = JUMP.airtime + CROUCH_TIME + 0.05;
+const shortVar = FIRE_VARIANTS.short;
+const shortOverlapWarmup =
+  (effTruckW() + effFireW(shortVar.w)) / WARMUP_SPEED;
 
 const failures = [];
+if (MIN_MULTI_FIRE_DX < Math.ceil(surgeSpeed * minCycle)) {
+  failures.push(
+    `[constants] MIN_MULTI_FIRE_DX ${MIN_MULTI_FIRE_DX} < surge need ${Math.ceil(surgeSpeed * minCycle)}`,
+  );
+}
+// Early run uses full hops only (canShortHop gate in game.js). Short-hop math is
+// late-run skill — log for reference, do not fail.
+if (SHORT_JUMP.airtime < shortOverlapWarmup) {
+  console.log(
+    `Note: short hop @ WARMUP ${SHORT_JUMP.airtime.toFixed(3)}s < short fire ` +
+    `${shortOverlapWarmup.toFixed(3)}s (OK — disabled in EASY_RUN)`,
+  );
+}
 
 for (const pattern of PATTERNS) {
   for (const { label, speed, requireMultiJumpable } of SPEEDS) {
@@ -192,15 +214,18 @@ for (const pattern of PATTERNS) {
       }
     }
   }
-  // Single fires must still be clearable at boost speed (in case boost ends
-  // mid-pattern). Multi-fire spacing is intentionally not enforced at boost.
   const fires = pattern.items.filter(it => it.kind === 'fire');
   for (const f of fires) {
-    if (!canClearFire(f.variant || 'torch', BOOST_MAX_SPEED)) {
-      failures.push(
-        `[${pattern.name}] @ BOOSTmax (${BOOST_MAX_SPEED.toFixed(0)} px/s): ` +
-        `single fire variant "${f.variant}" not clearable if boost ends`,
-      );
+    for (const [label, boostSpd] of [
+      ['BOOST@MAX', BOOST_MAX_SPEED],
+      ['BOOST@ABS', BOOST_ABS_SPEED],
+    ]) {
+      if (!canClearFire(f.variant || 'torch', boostSpd)) {
+        failures.push(
+          `[${pattern.name}] @ ${label} (${boostSpd.toFixed(0)} px/s): ` +
+          `fire "${f.variant}" not clearable if boost ends`,
+        );
+      }
     }
   }
 }

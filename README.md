@@ -1,73 +1,82 @@
 # CapyRizzle Rush
 
-A one-button endless racer starring Rizzle, the fire-chief capybara,
-hauling his firetruck through a burning city.
+A one-button endless racer starring **Rizzle**, the fire-chief capybara, hauling his firetruck through a burning city. Built for **[CapyJam 2026](https://x.com/_summer_plays_)** — submissions open May 28, deadline **June 11, 2026**.
 
-Built for [CapyJam 2026](https://x.com/_summer_plays_) — submissions
-open May 28, deadline June 11.
+## Play (browser)
 
-## Controls
+Open the hosted game URL (GitHub Pages or your deploy) — **no download, no login, no wallet.**
 
-- **Space / Tap** — jump
-- Grab WATER buckets to charge the SIREN — while it's burning, the
-  truck is invincible and SMASHES through fires for combo points.
-
-## Scoring
-
-Score = meters traveled + bonuses (smash, near-miss, pickup, milestone).
-Bonuses scale with your combo (max ×20). Distance milestones fire every
-250m for celebratory points.
-
-Runs get a rank at game over:
-
-| Rank | Score      |
-|------|-----------:|
-| D    |       0+   |
-| C    |   5,000+   |
-| B    |  15,000+   |
-| A    |  40,000+   |
-| S    | 100,000+   |
-
-## Tech
-
-- Single static page: `index.html` + `game.js` + `style.css`
-- Canvas 2D, no framework, no build step
-- WebAudio for SFX, `localStorage` for high score + first-run tutorial
-
-## Local play
+Local dev:
 
 ```bash
 python3 serve.py 5777
-# open http://127.0.0.1:5777/
+# http://127.0.0.1:5777/
 ```
 
-The bundled `serve.py` sends `Cache-Control: no-store` headers so
-edits show up on a normal refresh (no hard-reload required).
+`serve.py` sends `Cache-Control: no-store` so refreshes always pick up edits.
 
-## Debug HUD
+## Controls
 
-Append `?debug=1` to the URL for a live state pill (build, fps, mode,
-truck position, speed, freeze/death/slow-mo timers, obstacle count).
+- **Space / Tap / Click** — jump (clear every fire)
+- Early runs get **full-height jump assist**; short-hop is a late-run skill
+- **BOOST** (blue bucket) — speed burst + 2× score; you still must jump fires
+- **ARMOR** (gold star) — blocks one hit per run
 
-## Tests
+## Scoring
 
-```bash
-node tools/playtest.mjs
-```
+Score = distance + bonuses (near-miss, pickups, milestones, combo). Combo builds to ×20. Distance milestones every 250m.
 
-Deterministically validates every obstacle pattern at every speed,
-verifies water pickups are reachable at jump apex, and runs 50 random
-scoring sims to surface any runaway loops. Keep it green.
+| Rank | Score   |
+|------|--------:|
+| D    |      0+ |
+| C    |  5,000+ |
+| B    | 15,000+ |
+| A    | 40,000+ |
+| S    | 100,000+ |
+
+## CapyJam checklist
+
+| Requirement | Status |
+|-------------|--------|
+| Capybara featured | Rizzle + crowd/world capys |
+| Racing format (clock / distance) | Endless sprint vs. score & rank |
+| Mostly vibe coded | Procedural canvas art + WebAudio |
+| Own the game | `<meta name="game:owner" content="rizzle" />` |
+| Web, browser, free | Static `index.html` + `game.js` + `style.css` |
+| Public playable link | **Deploy before submit** (see below) |
+| No iframe-only wrapper | Link directly to your `index.html` URL |
+| Official submit on jam page | Use host **“Submit game”** (not X alone) |
+| X promo | Short gameplay clip + `@_summer_plays_` + `#capyjam` |
 
 ## Deploy (GitHub Pages)
 
 ```bash
 git remote add origin git@github.com:<you>/capyrizzle-rush.git
 git push -u origin main
-# In repo Settings → Pages: deploy from branch `main` / `/ (root)`.
+# Repo → Settings → Pages → branch `main` / root
+# Playable URL: https://<you>.github.io/capyrizzle-rush/
 ```
+
+Submit that **root URL** on the jam form (not an embed iframe).
+
+## Tech
+
+- Canvas 2D, no framework, no build step (~230 KB total)
+- WebAudio SFX + procedural soundtrack (🔊 mute in-game), `localStorage` for best/high score, tutorial, mute
+- Cosmetic layer separated from gameplay (see header comment in `game.js`)
+
+## Tests
+
+```bash
+node tools/playtest-all.mjs
+```
+
+Validates jump math at all speed tiers, gap spacing, and progression curve.
+
+## Debug
+
+Append `?debug=1` for build tag + live state (fps, speed, obstacles).
 
 ## Ownership
 
-Game is owned by Rizzle, declared via
-`<meta name="game:owner" content="rizzle" />` in `index.html`.
+Game owned by Rizzle — `game:owner` meta in `index.html`.
