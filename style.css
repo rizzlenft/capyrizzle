@@ -55,6 +55,8 @@ html, body {
   position: relative;
   width: min(100vw, calc(100vh * 16 / 9));
   height: min(100vh, calc(100vw * 9 / 16));
+  container-type: size;
+  container-name: game;
   border-radius: 12px;
   overflow: hidden;
   box-shadow:
@@ -595,6 +597,82 @@ html, body {
   opacity: 0.9;
   max-width: 440px;
   margin: 0;
+}
+.tag-touch { display: none; }
+html.touch-ui .tag-desktop { display: none; }
+html.touch-ui .tag-touch { display: block; }
+
+@container game (max-height: 360px) {
+  #title.overlay {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 6px 10px 12px;
+  }
+  #title .title-panel {
+    max-height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+  #title .logo { font-size: clamp(28px, 14vmin, 44px); }
+  #title .title-kicker { font-size: 9px; letter-spacing: 0.12em; }
+  #title .run-theme { padding: 6px 12px; font-size: 11px; }
+  #title .tag { font-size: 11px; line-height: 1.35; max-width: 100%; }
+  #title .legend { padding: 8px 10px; gap: 6px; max-width: 100%; }
+  #title .legend-copy { font-size: 10px; line-height: 1.35; }
+  #title .credit { display: none; }
+  #title .bigbtn {
+    padding: 11px 24px;
+    font-size: 17px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+}
+
+html.touch-ui .hud-dock {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding: 4px 8px;
+}
+html.touch-ui .hud-zone-mid {
+  flex: 1 1 100%;
+  order: 3;
+  max-width: 100%;
+}
+html.touch-ui .hud-zone-right .theme-pill,
+html.touch-ui .hud-zone-right .heat-pill {
+  display: none !important;
+}
+html.touch-ui #best,
+html.touch-ui #best.best-pill--compact {
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  font-size: 10px;
+  padding: 2px 7px;
+  letter-spacing: 0.03em;
+}
+html.touch-ui #best.best-pill--compact::before,
+html.touch-ui #best::before {
+  content: '★ ';
+  opacity: 0.9;
+}
+html.touch-ui .hud-score { font-size: 13px; padding: 3px 8px; }
+html.touch-ui .combo-pill { font-size: 10px; padding: 2px 6px; }
+html.touch-ui .hud-bottom { padding-bottom: 2px; }
+html.touch-ui .play-hints { gap: 4px; }
+html.touch-ui .play-hints .play-hint {
+  font-size: 11px;
+  padding: 5px 10px;
+  max-width: 96%;
+  line-height: 1.2;
+}
+html.touch-ui .mute-btn {
+  width: 40px;
+  height: 40px;
+  bottom: 8px;
+  right: 8px;
 }
 
 #title .legend {

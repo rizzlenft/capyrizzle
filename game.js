@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.1-mobile-audio-ui';
+  const BUILD = 'v27.2-mobile-touch-audio';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -181,9 +181,22 @@
     if (elSeasonPill) elSeasonPill.classList.toggle('hidden', mode !== 'playing' || isNarrowHud());
     if (elTitleTheme) elTitleTheme.classList.remove('hidden');
   }
+  function isTouchUi() {
+    return window.matchMedia('(pointer: coarse)').matches
+      || window.matchMedia('(hover: none)').matches
+      || 'ontouchstart' in window
+      || window.innerWidth < 900;
+  }
+
   function isNarrowHud() {
+    return isTouchUi();
+  }
+
+  function syncUiMode() {
     const frame = document.getElementById('frame');
-    return frame ? frame.clientWidth < 480 : window.innerWidth < 520;
+    const short = frame ? frame.clientHeight < 360 : window.innerHeight < 400;
+    document.documentElement.classList.toggle('touch-ui', isTouchUi());
+    document.documentElement.classList.toggle('short-frame', short);
   }
 
   function syncPlayHints() {
@@ -195,15 +208,16 @@
     const narrow = isNarrowHud();
     elPlayHints.classList.toggle('hidden', mode !== 'playing' || !any);
     elPlayHints.classList.toggle('play-hints--narrow', narrow);
+    const soloHint = narrow && (shieldOn || waterOn || jumpOn);
     if (elHintJump) {
-      elHintJump.classList.toggle('hidden', !jumpOn);
+      elHintJump.classList.toggle('hidden', !jumpOn || (soloHint && (shieldOn || waterOn)));
       elHintJump.style.opacity = String(clamp(state.hint.jumpA, 0, 1));
       elHintJump.textContent = narrow
         ? (hasJumpAssist() ? 'TAP — full jump' : 'TAP — jump fires')
         : (hasJumpAssist() ? 'SPACEBAR — full jump' : 'SPACEBAR to jump every fire');
     }
     if (elHintWater) {
-      elHintWater.classList.toggle('hidden', !waterOn);
+      elHintWater.classList.toggle('hidden', !waterOn || (soloHint && shieldOn));
       elHintWater.style.opacity = String(clamp(state.hint.waterA, 0, 1));
       elHintWater.textContent = narrow
         ? 'BOOST — still jump!'
@@ -2443,8 +2457,6 @@
 
   try { musicMuted = localStorage.getItem(MUTE_KEY) === '1'; } catch { musicMuted = false; }
 
-  let audioUnlockPromise = null;
-
   function audio() {
     if (!ac) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -2453,26 +2465,47 @@
     return ac;
   }
 
-  /** Must run inside a user gesture (tap / key). Safari blocks sound otherwise. */
+  /** iOS needs resume + a started node in the *same* user-gesture stack. */
+  function unlockAudioSync() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    if (!ac) ac = new AC();
+    initAudioBuses();
+    if (ac.state === 'suspended') {
+      try { ac.resume(); } catch (_) { /* still try ping below */ }
+    }
+    if (!musicMuted) {
+      try {
+        const buf = ac.createBuffer(1, 1, ac.sampleRate);
+        const src = ac.createBufferSource();
+        src.buffer = buf;
+        src.connect(masterBus || ac.destination);
+        src.start(0);
+        blip(523, 0.07, 'sine', 0.09, 784);
+      } catch (_) {}
+      startSoundtrack();
+    }
+    applyAudioLevels();
+    return ac.state === 'running' || ac.state === 'suspended';
+  }
+
   function unlockAudio() {
-    if (!audioUnlockPromise) {
-      audioUnlockPromise = (async () => {
-        const c = audio();
-        if (!c) return false;
-        initAudioBuses();
-        if (c.state === 'suspended') {
-          try { await c.resume(); } catch { return false; }
-        }
+    unlockAudioSync();
+    const c = audio();
+    if (!c) return Promise.resolve(false);
+    if (c.state === 'suspended') {
+      return c.resume().then(() => {
         applyAudioLevels();
         if (!musicMuted) startSoundtrack();
         return c.state === 'running';
-      })();
+      }).catch(() => false);
     }
-    return audioUnlockPromise;
+    return Promise.resolve(c.state === 'running');
   }
 
   function bindAudioUnlock() {
-    const once = () => { unlockAudio(); };
+    const once = () => { unlockAudioSync(); };
+    document.addEventListener('touchstart', once, { capture: true, passive: true, once: true });
     document.addEventListener('pointerdown', once, { capture: true, once: true });
     document.addEventListener('keydown', once, { capture: true, once: true });
   }
@@ -2598,16 +2631,15 @@
   }
 
   function toggleMute() {
-    unlockAudio().then(() => {
-      musicMuted = !musicMuted;
-      try { localStorage.setItem(MUTE_KEY, musicMuted ? '1' : '0'); } catch {}
-      applyAudioLevels();
-      syncMuteButton();
-      if (!musicMuted) {
-        blip(440, 0.08, 'sine', 0.06, 660);
-        startSoundtrack();
-      }
-    });
+    unlockAudioSync();
+    musicMuted = !musicMuted;
+    try { localStorage.setItem(MUTE_KEY, musicMuted ? '1' : '0'); } catch {}
+    applyAudioLevels();
+    syncMuteButton();
+    if (!musicMuted) {
+      blip(440, 0.08, 'sine', 0.07, 660);
+      startSoundtrack();
+    }
   }
 
   function syncMuteButton() {
@@ -2766,7 +2798,7 @@
   // ═════════════════════════════════════════════════════════════════════
   function press(e) {
     if (e && e.cancelable) e.preventDefault();
-    unlockAudio();
+    unlockAudioSync();
     if (mode === 'title' || mode === 'gameover') {
       if (e && e.target && e.target.closest && e.target.closest('.bigbtn')) return;
       startGame();
@@ -2804,8 +2836,8 @@
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
   });
-  if (btnStart) btnStart.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio().then(() => startGame()); });
-  if (btnRetry) btnRetry.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio().then(() => startGame()); });
+  if (btnStart) btnStart.addEventListener('click', (e) => { e.stopPropagation(); unlockAudioSync(); startGame(); });
+  if (btnRetry) btnRetry.addEventListener('click', (e) => { e.stopPropagation(); unlockAudioSync(); startGame(); });
   if (elMuteBtn) {
     elMuteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2854,6 +2886,7 @@
     elTitle.classList.toggle('hidden', m !== 'title');
     elGameOver.classList.toggle('hidden', m !== 'gameover');
     elHud.classList.toggle('hidden', m === 'title' || m === 'gameover');
+    syncUiMode();
     syncThemeHud();
     applyAudioLevels();
   }
@@ -2948,8 +2981,8 @@
     logRunTheme();
   }
 
-  async function startGame() {
-    await unlockAudio();
+  function startGame() {
+    unlockAudioSync();
     resetRun();
     state.runStartT = RUN_START_TIME;
     startSoundtrack();
@@ -4557,6 +4590,7 @@
     }
 
     // ── HUD ── (defensive — missing elements must never freeze the loop)
+    syncUiMode();
     syncPowerHud();
     setText(elScore, state.score.toLocaleString());
     const bestNum = Math.max(state.best, state.score).toLocaleString();
@@ -6128,6 +6162,9 @@
   resetRun();
   setMode('title');
   syncMuteButton();
+  syncUiMode();
   bindAudioUnlock();
+  window.addEventListener('resize', syncUiMode);
+  window.addEventListener('orientationchange', () => setTimeout(syncUiMode, 120));
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();
