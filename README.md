@@ -51,10 +51,10 @@ Score = distance + bonuses (near-miss, pickups, milestones, combo). Combo builds
 ## Deploy (GitHub Pages)
 
 ```bash
-git remote add origin git@github.com:<you>/capyrizzle-rush.git
+git remote add origin https://github.com/rizzlenft/capyrizzle.git
 git push -u origin main
-# Repo → Settings → Pages → branch `main` / root
-# Playable URL: https://<you>.github.io/capyrizzle-rush/
+# Repo → Settings → Pages → Source: GitHub Actions
+# Play: https://rizzlenft.github.io/capyrizzle/
 ```
 
 Submit that **root URL** on the jam form (not an embed iframe).
