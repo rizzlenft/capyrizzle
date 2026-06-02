@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v9.1-shield';
+  const BUILD = 'v9.2-skillpass';
   // eslint-disable-next-line no-console
   console.info('%c[CapyRizzle] build ' + BUILD, 'background:#1f2640;color:#9ad1ff;padding:2px 6px;border-radius:4px;');
   // Debug overlay is opt-in via ?debug=1 in the URL. Keeps live HUD/pace
@@ -78,7 +78,8 @@
 
   // Jump feel
   const GRAVITY        = 2400;     // px/s^2 base
-  const JUMP_V         = -920;     // initial jump velocity
+  const JUMP_V         = -920;     // initial jump velocity (held)
+  const JUMP_CUT_V     = -380;     // released-early cut velocity (short hop)
   const APEX_GRAV_MUL  = 0.55;     // gravity multiplier near the apex (hang time)
   const APEX_BAND      = 220;      // |vy| below which we're "near apex"
   const CROUCH_TIME    = 0.07;     // seconds of anticipation crouch before liftoff
@@ -116,6 +117,8 @@
   // Combo
   const COMBO_MAX = 20;
   const COMBO_LEVELS = [1, 3, 5, 8, 12, 16, 20]; // thresholds for the big pop
+  const COMBO_GRACE  = 5.0;         // seconds of grace before decay starts
+  const COMBO_DECAY_STEP = 1.4;     // seconds per -1 combo once decaying
   const NEAR_MISS_PX = 38;          // clearance under which it counts as CLOSE!
   const NEAR_MISS_POINTS = 10;
 
@@ -1156,6 +1159,12 @@
     combo: 1,
     bestCombo: 1,           // best combo this run
     comboLevelShown: 0,     // last threshold index we celebrated
+    // Combo decay — resets to COMBO_GRACE seconds whenever the combo
+    // increases. Once it hits zero, combo erodes by 1 per COMBO_DECAY_STEP
+    // seconds. Adds tension to lulls without snapping a long combo on
+    // a single quiet pattern.
+    comboGrace: 0,
+    comboDecayClock: 0,
 
     // Shield (one-hit immunity). Acquired from rare gold-star pickups.
     // Consumed by the next fire collision: pop a SAVED! popup + spark burst
@@ -1184,6 +1193,7 @@
       crouchT: 0,                      // anticipation timer; while >0, queued jump pending
       pendingJump: false,
       jumpBuffer: 0,                   // input-buffer countdown for taps-while-airborne
+      jumpHeld: false,                 // is the jump button currently held? (variable jump)
       bob: 0,                          // continuous road-bob phase
       blinkT: rand(2, 4),              // seconds until next blink
       blinking: 0,                     // remaining blink animation
@@ -1208,8 +1218,8 @@
 
     // tutorial
     hint: {
-      jumpA: 0, waterA: 0,
-      jumpDone: false, waterDone: false,
+      jumpA: 0, waterA: 0, shieldA: 0,
+      jumpDone: false, waterDone: false, shieldDone: false,
     },
 
     // parallax offsets
@@ -1222,7 +1232,7 @@
   function press(e) {
     if (e && e.cancelable) e.preventDefault();
     audio(); // unlock on first interaction
-
+    state.truck.jumpHeld = true;
     if (mode === 'title' || mode === 'gameover') {
       const t = e && e.target;
       if (!t || (t !== btnStart && t !== btnRetry)) startGame();
@@ -1230,12 +1240,26 @@
     }
     if (mode === 'playing') queueJump();
   }
+  // Release a held jump early — cuts the rising velocity to JUMP_CUT_V so
+  // tap = short hop, hold = full jump. Adds a real skill ceiling without
+  // changing the difficulty floor.
+  function release() {
+    state.truck.jumpHeld = false;
+    if (mode !== 'playing') return;
+    const t = state.truck;
+    if (!t.onGround && t.vy < JUMP_CUT_V) t.vy = JUMP_CUT_V;
+  }
   canvas.addEventListener('pointerdown', press);
   elTitle.addEventListener('pointerdown', press);
   elGameOver.addEventListener('pointerdown', press);
+  canvas.addEventListener('pointerup',     release);
+  window.addEventListener('pointercancel', release);
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') press(e);
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
   });
   btnStart.addEventListener('click', () => startGame());
   btnRetry.addEventListener('click', () => startGame());
@@ -1262,6 +1286,10 @@
     t.onGround = false;
     t.squash = 0.72;
     t.stretch = 1.30;
+    // Variable jump: if the player ALREADY released the button before the
+    // crouch finished, this is a tap → apply the cut immediately so the
+    // hop is short. (Held tap → full -920 ascent.)
+    if (!t.jumpHeld) t.vy = JUMP_CUT_V;
     spawnDust(t.x + TRUCK_W * 0.5, GROUND_Y, 9, '#fff7e0');
     sfx.jump(state.combo);
     if (!state.hint.jumpDone) state.hint.jumpDone = true;
@@ -1294,6 +1322,8 @@
     state.shieldsGrabbed = 0;
     state.shield = false;
     state.shieldFlash = 0;
+    state.comboGrace = 0;
+    state.comboDecayClock = 0;
     state.combo = 1;
     state.bestCombo = 1;
     state.comboLevelShown = 0;
@@ -1304,7 +1334,7 @@
     Object.assign(state.truck, {
       x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
       onGround: true, squash: 1, stretch: 1,
-      crouchT: 0, pendingJump: false, jumpBuffer: 0, bob: 0,
+      crouchT: 0, pendingJump: false, jumpBuffer: 0, bob: 0, jumpHeld: false,
       blinkT: rand(2, 4), blinking: 0,
     });
 
@@ -1323,10 +1353,12 @@
     state.deathT = 0;
     state.cameraBob = 0;
 
-    state.hint.jumpDone  = tutSeen;
-    state.hint.waterDone = tutSeen;
+    state.hint.jumpDone   = tutSeen;
+    state.hint.waterDone  = tutSeen;
+    state.hint.shieldDone = localStorage.getItem(TUTORIAL_KEY + '_shield') === '1';
     state.hint.jumpA     = tutSeen ? 0 : 1;
     state.hint.waterA    = tutSeen ? 0 : 1;
+    state.hint.shieldA   = 0; // pops on first pickup, not on boot
 
     // Wipe + reseed cosmetic furniture (smoke columns, billboards, capys, …).
     Cosmetics.clear();
@@ -1744,10 +1776,15 @@
       }
     }
     if (state.combo !== before) bumpComboPill();
+    // Any combo gain refreshes the decay grace window.
+    state.comboGrace = COMBO_GRACE;
+    state.comboDecayClock = 0;
   }
   function resetCombo() {
     state.combo = 1;
     state.comboLevelShown = 0;
+    state.comboGrace = 0;
+    state.comboDecayClock = 0;
   }
 
   // Centralized bonus accumulator. All score bonuses (smash, near-miss,
@@ -2010,6 +2047,12 @@
             popup('SHIELD!', p.x + p.w / 2, p.y, '#ffd24a');
             blip(880, 0.12, 'triangle', 0.06, 1320);
             blip(1200, 0.18, 'sine',     0.05, 1760);
+            // First-time tutorial hint — fades after a few seconds.
+            if (!state.hint.shieldDone) {
+              state.hint.shieldA = 1;
+              state.hint.shieldDone = true;
+              try { localStorage.setItem(TUTORIAL_KEY + '_shield', '1'); } catch {}
+            }
           }
           state.shieldsGrabbed += 1;
           addCombo(1);
@@ -2042,6 +2085,25 @@
     // shield flash decay
     if (state.shieldFlash > 0) state.shieldFlash = Math.max(0, state.shieldFlash - dt);
 
+    // Combo decay — drop by 1 every COMBO_DECAY_STEP once grace expires.
+    // Stops at combo 1 (never resets the run to 0, that's reserved for hits).
+    if (state.combo > 1) {
+      if (state.comboGrace > 0) {
+        state.comboGrace = Math.max(0, state.comboGrace - dt);
+      } else {
+        state.comboDecayClock += dt;
+        if (state.comboDecayClock >= COMBO_DECAY_STEP) {
+          state.comboDecayClock -= COMBO_DECAY_STEP;
+          state.combo = Math.max(1, state.combo - 1);
+          // Cool dim of the pill so the player notices it dropping.
+          bumpComboPill();
+          if (state.combo === 1) state.comboLevelShown = 0;
+          else state.comboLevelShown = Math.max(0,
+            COMBO_LEVELS.findIndex(v => v > state.combo) - 1);
+        }
+      }
+    }
+
     // ── Cosmetics drift ──────────────────────────────────────────────
     Cosmetics.update(dt, worldSpeed);
 
@@ -2055,6 +2117,8 @@
     // ── Tutorial hint fade ───────────────────────────────────────────
     if (state.hint.jumpDone)  state.hint.jumpA  = Math.max(0, state.hint.jumpA  - dt * 1.4);
     if (state.hint.waterDone) state.hint.waterA = Math.max(0, state.hint.waterA - dt * 1.4);
+    // Shield hint lingers a bit longer (~5s) so the player has time to read it.
+    if (state.hint.shieldA > 0) state.hint.shieldA = Math.max(0, state.hint.shieldA - dt * 0.65);
 
     // ── Distance milestones ──────────────────────────────────────────
     // Milestones track METERS traveled, NOT score. This decouples them from
@@ -2620,8 +2684,9 @@
 
   function drawHints() {
     if (mode !== 'playing') return;
-    if (state.hint.jumpA  > 0) hintCard(W * 0.5, 120, 'TAP / SPACE to JUMP',           state.hint.jumpA,  '#fff7e0');
-    if (state.hint.waterA > 0) hintCard(W * 0.5, 162, 'Grab WATER for SIREN BOOST',   state.hint.waterA, '#a8e6ff');
+    if (state.hint.jumpA   > 0) hintCard(W * 0.5, 120, 'TAP / SPACE to JUMP',          state.hint.jumpA,   '#fff7e0');
+    if (state.hint.waterA  > 0) hintCard(W * 0.5, 162, 'Grab WATER for SIREN BOOST',   state.hint.waterA,  '#a8e6ff');
+    if (state.hint.shieldA > 0) hintCard(W * 0.5, 204, 'SHIELD: survive ONE hit',      state.hint.shieldA, '#ffd24a');
   }
   function hintCard(cx, cy, text, alpha, accent) {
     ctx.save();
