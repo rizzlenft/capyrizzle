@@ -65,6 +65,7 @@ html, body {
   height: min(var(--app-vh), calc(100vw * 9 / 16));
   container-type: size;
   container-name: game;
+  contain: layout paint;
   border-radius: 12px;
   overflow: hidden;
   box-shadow:

@@ -23,9 +23,13 @@
  */
 
 (() => {
-  const BUILD = 'v27.6-mobile-perf';
-  const MOBILE_MAX_PARTICLES = 56;
-  const DESKTOP_MAX_PARTICLES = 160;
+  const BUILD = 'v27.7-perf-pass';
+  const MOBILE_MAX_PARTICLES = 48;
+  const DESKTOP_MAX_PARTICLES = 120;
+  const MAX_POPUPS = { mobile: 8, desktop: 16 };
+  let frameTime = 0;
+  const framePerf = { mobile: false };
+  const skyGradCache = { key: '', grad: null };
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -384,8 +388,30 @@
   // ─── DOM ──────────────────────────────────────────────────────────────
   const canvas = document.getElementById('game');
   const ctx    = canvas.getContext('2d');
+  if (ctx) ctx.imageSmoothingEnabled = false;
   const W      = canvas.width;   // 960
   const H      = canvas.height;  // 540
+
+  function refreshFrameClock(now) {
+    frameTime = now;
+    framePerf.mobile = isMobilePlay();
+  }
+
+  function cosmeticCullPad() {
+    return framePerf.mobile ? 100 : 160;
+  }
+
+  function getSkyGradient() {
+    const mood = state.mood || MOODS.dusk;
+    const key = (mood.id || 'dusk') + '|' + GROUND_Y;
+    if (skyGradCache.key !== key) {
+      skyGradCache.key = key;
+      const g = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      for (const [stop, color] of mood.sky) g.addColorStop(stop, color);
+      skyGradCache.grad = g;
+    }
+    return skyGradCache.grad;
+  }
 
   const $ = (id) => document.getElementById(id);
   const elTitle      = $('title');
@@ -762,7 +788,7 @@
         draw: drawCableCarCapy,
       });
     }
-    const confettiN = mp ? 3 : cp ? 6 : 12;
+    const confettiN = mp ? 3 : cp ? 6 : 10;
     for (let i = 0; i < confettiN; i++) {
       Cosmetics.add({
         layer: 'sky',
@@ -922,7 +948,7 @@
       });
     }
 
-    const emberN = mp ? 8 : cp ? 14 : 22;
+    const emberN = mp ? 8 : cp ? 14 : 18;
     for (let i = 0; i < emberN; i++) {
       Cosmetics.add({
         layer: 'farBg',
@@ -1248,7 +1274,7 @@
         ctx.fill();
       }
     } else if (prop === 'glowsticks') {
-      const t = performance.now() / 200;
+      const t = frameTime / 200;
       const colors = ['#ff5a8a', '#4ec5ff', '#ffd24a'];
       for (let i = 0; i < 2; i++) {
         ctx.strokeStyle = colors[(i + Math.floor(t)) % 3];
@@ -1489,7 +1515,7 @@
     const headSize = fitFontSize(label, textW, 13, 9);
     drawOutlinedLabel(label, textX, by + 17, '#fff7e0', 'bold ' + headSize + 'px ui-rounded, Nunito, system-ui, sans-serif');
     drawOutlinedLabel('-- CAPY CO --', textX, by + 32, 'rgba(255, 247, 224, 0.75)', 'bold 8px ui-rounded, Nunito, system-ui, sans-serif');
-    const blink = (performance.now() / 500 + x * 0.01) % 2 < 1;
+    const blink = (frameTime / 500 + x * 0.01) % 2 < 1;
     ctx.fillStyle = blink ? '#ff5a3c' : 'rgba(255,90,60,0.3)';
     ctx.beginPath(); ctx.arc(bx + 4, by + 4, 3, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(bx + bw - 4, by + 4, 3, 0, Math.PI * 2); ctx.fill();
@@ -1805,7 +1831,7 @@
     ctx.font = 'bold 9px ui-rounded, Nunito, system-ui, sans-serif';
     ctx.fillText('CHIEF  2026', x + 12, y + 50);
     // blinker
-    const blink = (performance.now() / 400 + x * 0.01) % 2 < 1;
+    const blink = (frameTime / 400 + x * 0.01) % 2 < 1;
     ctx.fillStyle = blink ? '#ffe24c' : 'rgba(255,226,76,0.3)';
     ctx.beginPath(); ctx.arc(x - 70, y - 6, 3, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(x + 70, y - 6, 3, 0, Math.PI * 2); ctx.fill();
@@ -2118,8 +2144,8 @@
   function drawNeonText(cx, cy, text, seed, colors, opts) {
     colors = colors || ['#ff5a8a', '#ffd24a'];
     opts = opts || {};
-    const flick = 0.65 + 0.35 * Math.abs(Math.sin(performance.now() / 90 + seed * 2.1));
-    const dim = (performance.now() / 350 + seed * 1.7) % 2 > 1.92;
+    const flick = 0.65 + 0.35 * Math.abs(Math.sin(frameTime / 90 + seed * 2.1));
+    const dim = (frameTime / 350 + seed * 1.7) % 2 > 1.92;
     ctx.save();
     let fontPx = opts.fontPx || 11;
     const maxW = opts.maxW;
@@ -2181,7 +2207,7 @@
         hatType: ['party', 'melon', 'sunglasses'][i],
       });
     }
-    const twinkle = (performance.now() / 200 + x) % 1;
+    const twinkle = (frameTime / 200 + x) % 1;
     for (let i = 0; i < 5; i++) {
       const on = (i + twinkle * 5) % 5 < 2.5;
       ctx.fillStyle = on ? '#ffd24a' : 'rgba(255,210,74,0.25)';
@@ -2358,7 +2384,7 @@
     ctx.ellipse(anchorX + w * 0.14, top + earH * 0.55, earW, earH, 0, 0, Math.PI * 2);
     ctx.ellipse(anchorX + w * 0.86, top + earH * 0.55, earW, earH, 0, 0, Math.PI * 2);
     ctx.fill();
-    const blink = Math.sin(performance.now() / 500 + seed) > 0.92;
+    const blink = Math.sin(frameTime / 500 + seed) > 0.92;
     ctx.fillStyle = win;
     const eyeY = top + h * 0.38;
     const eyeW = w * 0.14;
@@ -2376,8 +2402,9 @@
     const neon = opts.neon || getCostumeSeason().neon || ['#ff5a8a', '#ffd24a'];
     drawNeonText(cx, top + h * 0.08, 'MEGA  CAPY', seed, neon, { backdrop: true });
     drawNeonText(cx, top + h * 0.16, 'SOAK  HQ', seed + 3, [neon[1], neon[0]], { backdrop: true });
-    for (let row = 0; row < 4; row++) {
-      for (let col = 0; col < 5; col++) {
+    const winStep = framePerf.mobile ? 2 : 1;
+    for (let row = 0; row < 4; row += winStep) {
+      for (let col = 0; col < 5; col += winStep) {
         if (tileRand(seed, row * 10 + col) < 0.35) continue;
         const wx = anchorX + w * 0.22 + col * (w * 0.11);
         const wy = top + h * 0.62 + row * (h * 0.07);
@@ -2404,21 +2431,18 @@
   function drawMegaCapySkyline(scroll, period, baseY, seedOff, opts) {
     const start = Math.floor(scroll / period) - 1;
     const offset = -(scroll - start * period);
+    const towerW = period * 0.92;
     for (let i = 0; i < 3; i++) {
       const idx = start + i;
       if (tileRand(idx + seedOff, 66) < 0.48) continue;
-      drawMegaCapyBuilding(
-        offset + i * period + period * 0.04,
-        baseY,
-        period * 0.92,
-        idx + seedOff,
-        opts
-      );
+      const bx = offset + i * period + period * 0.04;
+      if (bx > W + 220 || bx + towerW < -220) continue;
+      drawMegaCapyBuilding(bx, baseY, towerW, idx + seedOff, opts);
     }
   }
 
   function drawProceduralBlindWindow(wx, wy, ww, wh, seed) {
-    const open = 0.45 + 0.55 * Math.sin(performance.now() / 380 + seed * 8);
+    const open = 0.45 + 0.55 * Math.sin(frameTime / 380 + seed * 8);
     ctx.fillStyle = 'rgba(255, 200, 120, 0.35)';
     ctx.fillRect(wx, wy, ww, wh);
     ctx.fillStyle = 'rgba(10, 6, 35, 0.75)';
@@ -2543,10 +2567,10 @@
     },
 
     draw(layer) {
-      const cullPad = isMobilePlay() ? 100 : 0;
+      const cullPad = cosmeticCullPad();
       for (const c of this.items) {
         if (c.layer !== layer) continue;
-        if (cullPad && (c.x < -cullPad || c.x > W + cullPad)) continue;
+        if (c.x < -cullPad || c.x > W + cullPad) continue;
         c.draw(c);
       }
     },
@@ -4168,6 +4192,7 @@
         size: rand(3, 6), color: pick(palette), kind: 'spark', grav: 700,
       });
     }
+    trimParticles();
   }
   function spawnFireFlick(x, y) {
     if (isMobilePlay() && Math.random() > 0.22) return;
@@ -4179,6 +4204,7 @@
       size: rand(4, 7), color: Math.random() < 0.5 ? '#ffb14c' : '#ff5a3c',
       kind: 'flame', grav: -100,
     });
+    trimParticles();
   }
   function spawnBoostFlame() {
     for (let n = 0; n < (isMobilePlay() ? 1 : 2); n++) {
@@ -4192,6 +4218,7 @@
         kind: 'flame', grav: 0,
       });
     }
+    trimParticles();
   }
   function spawnCapySpark(x, y, n, color) {
     const c = color || '#b4884f';
@@ -4205,6 +4232,7 @@
         size: rand(4, 7), color: c, kind: 'capy', grav: 520,
       });
     }
+    trimParticles();
   }
   function spawnRing(x, y, color) {
     state.particles.push({
@@ -4213,6 +4241,7 @@
       size: 6, ringMax: rand(36, 58), color: color || '#ffe24c',
       kind: 'ring', grav: 0,
     });
+    trimParticles();
   }
   function spawnWaterSplash(x, y) {
     const season = getCostumeSeason();
@@ -4237,6 +4266,7 @@
         kind: 'dust', grav: 600,
       });
     }
+    trimParticles();
   }
   function popup(text, x, y, color, opts) {
     opts = opts || {};
@@ -4248,6 +4278,8 @@
       vy: opts.vy != null ? opts.vy : -56,
       big: !!opts.big,
     });
+    const cap = framePerf.mobile ? MAX_POPUPS.mobile : MAX_POPUPS.desktop;
+    if (state.popups.length > cap) state.popups.splice(0, state.popups.length - cap);
   }
 
   function shake(mag, dur) {
@@ -4935,11 +4967,13 @@
     ctx.save();
 
     // Camera transform: shake + subtle truck-ride bob
-    const mobile = isMobilePlay();
-    const sx = mobile ? 0 : (Math.random() - 0.5) * state.shake.mag;
+    const mobile = framePerf.mobile;
+    const shakeMag = state.shake.mag;
+    const shakeR = mobile ? 0 : (Math.random() - 0.5) * shakeMag;
     const punch = state.camPunch * (mobile ? 6 : 12);
-    const sy = (mobile ? 0 : (Math.random() - 0.5) * state.shake.mag) + state.cameraBob
-      + Math.sin(performance.now() / 45) * punch;
+    const sy = (mobile ? 0 : shakeR) + state.cameraBob
+      + Math.sin(frameTime / 45) * punch;
+    const sx = shakeR;
     ctx.translate(sx, sy);
 
     drawSky();
@@ -4999,16 +5033,15 @@
   //   deep navy night → indigo → magenta → ember orange → smoke band on horizon
   function drawSky() {
     const mood = state.mood || MOODS.dusk;
-    const g = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    for (const [stop, color] of mood.sky) g.addColorStop(stop, color);
-    ctx.fillStyle = g;
+    ctx.fillStyle = getSkyGradient();
     ctx.fillRect(0, 0, W, GROUND_Y);
 
     // Stars — slow twinkle. Procedural & deterministic so they don't pop.
     ctx.save();
-    const tw = performance.now() / 900;
+    const tw = frameTime / 900;
     const starRGB = hexToRgb(mood.starTint);
-    for (let i = 0; i < 70; i++) {
+    const starN = framePerf.mobile ? 40 : 70;
+    for (let i = 0; i < starN; i++) {
       const sx = (i * 97.13)  % W;
       const sy = (i * 53.71)  % (GROUND_Y * 0.55);
       const tw2 = 0.4 + 0.6 * Math.abs(Math.sin(tw + i * 0.7));
@@ -5044,7 +5077,7 @@
     // Distant flame glow on the horizon — color shifts per mood.
     ctx.save();
     const horizonY = GROUND_Y - 14;
-    const flicker = 0.78 + 0.22 * Math.sin(performance.now() / 220);
+    const flicker = 0.78 + 0.22 * Math.sin(frameTime / 220);
     const [g1, g2, g3] = mood.glow.map(hexToRgb);
     const glow = ctx.createRadialGradient(W * 0.5, horizonY, 40, W * 0.5, horizonY, W * 0.7);
     glow.addColorStop(0,   'rgba(' + g1 + ', ' + (0.55 * flicker) + ')');
@@ -5067,7 +5100,7 @@
 
     // Aurora band — soft capy-colored curtains across the sky.
     ctx.save();
-    const aur = performance.now() / 1400;
+    const aur = frameTime / 1400;
     const [a1, a2] = [mood.glow[1], mood.glow[0]].map(hexToRgb);
     for (let band = 0; band < 3; band++) {
       const ay = 50 + band * 45 + Math.sin(aur + band) * 12;
@@ -5122,10 +5155,11 @@
         neon: season.neon,
       });
     }
-    const farTiles = isMobilePlay() ? 4 : 6;
+    const farTiles = framePerf.mobile ? 4 : 6;
     for (let i = 0; i < farTiles; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
+      if (tileX > W + TILE || tileX < -TILE * 2) continue;
       drawSkylineTile(tileX, baseY, TILE, tileIdx, {
         color: '#2a1a5a',
         windowColor: 'rgba(255, 200, 100, 0.55)',
@@ -5152,10 +5186,11 @@
         scale: 0.78,
       });
     }
-    const fgTiles = isMobilePlay() ? 3 : 5;
+    const fgTiles = framePerf.mobile ? 3 : 5;
     for (let i = 0; i < fgTiles; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
+      if (tileX > W + TILE || tileX < -TILE * 2) continue;
       drawSkylineTile(tileX, baseY, TILE, tileIdx + 1000, {
         color: '#150827',
         windowColor: 'rgba(255, 170, 80, 0.45)',
@@ -5169,7 +5204,8 @@
   // Renders one tile of skyline. Generates 3-5 buildings with seeded
   // randomness so each tile is consistent but the line as a whole varies.
   function drawSkylineTile(tileX, baseY, tileW, seed, opts) {
-    const mobile = isMobilePlay();
+    if (tileX > W + 100 || tileX < -tileW - 100) return;
+    const mobile = framePerf.mobile;
     const buildingCount = mobile
       ? 2 + Math.floor(tileRand(seed, 1) * 2)
       : 3 + Math.floor(tileRand(seed, 1) * 3);
@@ -5210,7 +5246,7 @@
             let a = 1;
             if (opts.flicker && !mobile) {
               const flickerHash = (Math.floor(wx) ^ Math.floor(wy * 31)) & 7;
-              if (flickerHash === 0) a = 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 300 + wx * 0.07));
+              if (flickerHash === 0) a = 0.55 + 0.45 * Math.abs(Math.sin(frameTime / 300 + wx * 0.07));
             }
             if (!mobile && tileRand(seed, wx * 0.1 + wy) > 0.58) {
               ctx.globalAlpha = a;
@@ -5249,7 +5285,7 @@
     } else if (kind === 'antenna') {
       ctx.fillRect(x + w * 0.5 - 1, top - 26, 2, 26);
       // red blinker — uses seed so they don't all blink in sync
-      const blink = (performance.now() / 600 + seed) % 2 < 1;
+      const blink = (frameTime / 600 + seed) % 2 < 1;
       ctx.fillStyle = blink ? '#ff5a3c' : 'rgba(255,90,60,0.25)';
       ctx.beginPath(); ctx.arc(x + w * 0.5, top - 26, 3, 0, Math.PI * 2); ctx.fill();
     } else if (kind === 'sign') {
@@ -5391,7 +5427,7 @@
 
   // Title / game-over — capy crowd on the curb (DOM owns the big logo text).
   function drawTitleCapys() {
-    const t = performance.now() / 1000;
+    const t = frameTime / 1000;
     const season = getCostumeSeason();
     const onTitle = mode === 'title';
     ctx.save();
@@ -5430,6 +5466,7 @@
   // ─── Obstacles & pickups ──────────────────────────────────────────────
   function drawObstacles() {
     for (const o of state.obstacles) {
+      if (o.x + o.w < -48 || o.x > W + 48) continue;
       Sprite.draw('fire', o.x, o.y, o.w, o.h, {
         fireIndex: o.fireIndex,
         fireTotal: o.fireTotal,
@@ -5452,6 +5489,7 @@
   }
   function drawPickups() {
     for (const p of state.pickups) {
+      if (p.x + p.w < -40 || p.x > W + 40) continue;
       const bob = Math.sin(p.phase) * 5;
       if (p.kind === 'shield') {
         drawPickupHalo(p.x + p.w / 2, p.y + p.h / 2 + bob, p.w, p.phase, '#ffd24a');
@@ -5528,7 +5566,7 @@
     if (state.boosting) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 60);
+      const pulse = 0.7 + 0.3 * Math.sin(frameTime / 60);
       const r = TRUCK_W * 1.0 * pulse;
       const g = ctx.createRadialGradient(cx, cy, 8, cx, cy, r);
       g.addColorStop(0, 'rgba(255, 226, 76, 0.9)');
@@ -5541,7 +5579,7 @@
     // shield aura — gold rotating ring
     if (state.shield || state.shieldFlash > 0) {
       ctx.save();
-      const now = performance.now();
+      const now = frameTime;
       const alphaActive = state.shield ? 0.85 : Math.max(0, state.shieldFlash / 0.6);
       ctx.globalAlpha = alphaActive;
       ctx.globalCompositeOperation = 'lighter';
@@ -5583,6 +5621,7 @@
   // ─── Particles & popups ───────────────────────────────────────────────
   function drawParticles() {
     for (const p of state.particles) {
+      if (p.x < -32 || p.x > W + 32 || p.y < -48 || p.y > H + 48) continue;
       const a = clamp(p.life / p.max, 0, 1);
       ctx.save();
       ctx.globalAlpha = a;
@@ -5628,7 +5667,7 @@
       const bx = anchorX - labelW / 2;
       const by = t.y - 24;
       ctx.globalCompositeOperation = 'lighter';
-      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 90);
+      const pulse = 0.6 + 0.4 * Math.sin(frameTime / 90);
       ctx.fillStyle = t.color;
       ctx.globalAlpha = a * 0.32 * pulse;
       const trailX = Math.max(anchorX + 40, bx + labelW);
@@ -5647,7 +5686,7 @@
       ctx.lineWidth = 3;
       for (let i = 0; i < 3; i++) {
         const cx = Math.min(bx + labelW + 10 + i * 11, W - 22);
-        const wob = Math.sin(performance.now() / 120 + i) * 2;
+        const wob = Math.sin(frameTime / 120 + i) * 2;
         ctx.beginPath();
         ctx.moveTo(cx,     t.y - 7 + wob);
         ctx.lineTo(cx + 6, t.y + wob);
@@ -5995,7 +6034,7 @@
     const blink = !!opts.blink;
     const airborne = !!opts.airborne;
     const boost = !!opts.boost;
-    const now = performance.now();
+    const now = frameTime;
 
     // exhaust puff trail behind the truck (only while grounded)
     if (!airborne) {
@@ -6270,7 +6309,7 @@
     if (opts.shield) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 120);
+      const pulse = 0.6 + 0.4 * Math.sin(frameTime / 120);
       ctx.fillStyle = 'rgba(255, 226, 76, ' + pulse + ')';
       ctx.beginPath();
       ctx.arc(cx, cy - s * 1.05, s * 0.22, 0, Math.PI * 2);
@@ -6358,6 +6397,7 @@
   // ═════════════════════════════════════════════════════════════════════
   let lastT = performance.now();
   function frame(now) {
+    refreshFrameClock(now);
     let dt = (now - lastT) / 1000;
     lastT = now;
     if (dt > 0.05) dt = 0.05;
