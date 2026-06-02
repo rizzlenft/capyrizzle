@@ -148,12 +148,45 @@ html, body {
 }
 
 @media (max-width: 520px) {
-  .hud-dock { gap: 6px; padding: 4px 8px; }
-  .hud-score { padding: 3px 9px; font-size: 14px; }
-  .hud-pill { padding: 2px 7px; font-size: 11px; }
-  .hud-zone-mid { max-width: 38%; gap: 8px; }
-  .pwr-track { min-width: 28px; }
-  .best-pill { max-width: 92px; overflow: hidden; text-overflow: ellipsis; }
+  #hud { padding: 6px 8px; }
+  .hud-dock { gap: 5px; padding: 4px 8px; }
+  .hud-score { padding: 3px 8px; font-size: 13px; }
+  .hud-pill { padding: 2px 6px; font-size: 10px; letter-spacing: 0.04em; }
+  .hud-zone-mid { max-width: 44%; gap: 6px; }
+  .pwr-track { min-width: 24px; max-width: 56px; }
+  .pwr-glyph { width: 22px; height: 22px; font-size: 9px; }
+  .best-chase { display: none; }
+}
+
+.hud-dock--narrow {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding: 4px 8px;
+}
+.hud-dock--narrow .hud-zone-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hud-dock--narrow .hud-zone-right {
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+.hud-dock--narrow .hud-zone-mid {
+  flex: 1 1 100%;
+  order: 3;
+  max-width: 100%;
+  justify-content: center;
+}
+.best-pill--compact {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.best-pill--compact::before {
+  content: '★ ';
+  opacity: 0.85;
 }
 
 .hud-zone-right {
@@ -284,6 +317,14 @@ html, body {
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   transition: opacity 120ms linear;
+}
+
+.play-hints--narrow .play-hint {
+  font-size: clamp(10px, 2.8vmin, 12px);
+  padding: 5px 10px;
+  letter-spacing: 0.03em;
+  max-width: min(94vw, 340px);
+  line-height: 1.2;
 }
 
 #hintWater { border-color: #4ec5ff; color: #a8e6ff; }

@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.0-capyjam-ship';
+  const BUILD = 'v27.1-mobile-audio-ui';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -178,30 +178,43 @@
       n.el.style.borderColor = n.color;
       if (n.title != null) n.el.title = n.title;
     }
-    if (elSeasonPill) elSeasonPill.classList.toggle('hidden', mode !== 'playing');
+    if (elSeasonPill) elSeasonPill.classList.toggle('hidden', mode !== 'playing' || isNarrowHud());
     if (elTitleTheme) elTitleTheme.classList.remove('hidden');
   }
+  function isNarrowHud() {
+    const frame = document.getElementById('frame');
+    return frame ? frame.clientWidth < 480 : window.innerWidth < 520;
+  }
+
   function syncPlayHints() {
     if (!elPlayHints) return;
     const jumpOn = state.hint.jumpA > 0.04;
     const waterOn = state.hint.waterA > 0.04;
     const shieldOn = state.hint.shieldA > 0.04;
     const any = jumpOn || waterOn || shieldOn;
+    const narrow = isNarrowHud();
     elPlayHints.classList.toggle('hidden', mode !== 'playing' || !any);
+    elPlayHints.classList.toggle('play-hints--narrow', narrow);
     if (elHintJump) {
       elHintJump.classList.toggle('hidden', !jumpOn);
       elHintJump.style.opacity = String(clamp(state.hint.jumpA, 0, 1));
-      elHintJump.textContent = hasJumpAssist()
-        ? 'SPACEBAR — full jump'
-        : 'SPACEBAR to jump every fire';
+      elHintJump.textContent = narrow
+        ? (hasJumpAssist() ? 'TAP — full jump' : 'TAP — jump fires')
+        : (hasJumpAssist() ? 'SPACEBAR — full jump' : 'SPACEBAR to jump every fire');
     }
     if (elHintWater) {
       elHintWater.classList.toggle('hidden', !waterOn);
       elHintWater.style.opacity = String(clamp(state.hint.waterA, 0, 1));
+      elHintWater.textContent = narrow
+        ? 'BOOST — still jump!'
+        : 'BOOST bucket = speed — still jump fires!';
     }
     if (elHintShield) {
       elHintShield.classList.toggle('hidden', !shieldOn);
       elHintShield.style.opacity = String(clamp(state.hint.shieldA, 0, 1));
+      elHintShield.textContent = narrow
+        ? 'ARMOR — one save'
+        : 'ARMOR star = one save this run';
     }
   }
 
@@ -828,9 +841,11 @@
     }
 
     // ── Pass 2: neon rooftops, balcony parties, searchlights ─────────
-    const NEON_SPACING = 400;
+    const narrowWorld = typeof window !== 'undefined' && window.innerWidth < 520;
+    const NEON_SPACING = narrowWorld ? 520 : 400;
     const NEON_MSGS = ['CAPY SPA', 'SOAK BAR', 'RIZZLE FM', 'CHONK HQ', 'WET DOG'];
-    for (let i = 0; i < 8; i++) {
+    const neonCount = narrowWorld ? 5 : 8;
+    for (let i = 0; i < neonCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
         x: 360 + i * NEON_SPACING,
@@ -2013,8 +2028,9 @@
 
   function drawNeonRooftopSign(c) {
     const x = c.x, y = c.y;
-    const bw = 124;
-    const bh = 40;
+    const narrowWorld = typeof window !== 'undefined' && window.innerWidth < 520;
+    const bw = narrowWorld ? 100 : 124;
+    const bh = narrowWorld ? 34 : 40;
     const cy = y + 12;
     ctx.save();
     ctx.fillStyle = '#1a0f3a';
@@ -2427,13 +2443,38 @@
 
   try { musicMuted = localStorage.getItem(MUTE_KEY) === '1'; } catch { musicMuted = false; }
 
+  let audioUnlockPromise = null;
+
   function audio() {
     if (!ac) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (AC) ac = new AC();
     }
-    if (ac && ac.state === 'suspended') ac.resume().catch(() => {});
     return ac;
+  }
+
+  /** Must run inside a user gesture (tap / key). Safari blocks sound otherwise. */
+  function unlockAudio() {
+    if (!audioUnlockPromise) {
+      audioUnlockPromise = (async () => {
+        const c = audio();
+        if (!c) return false;
+        initAudioBuses();
+        if (c.state === 'suspended') {
+          try { await c.resume(); } catch { return false; }
+        }
+        applyAudioLevels();
+        if (!musicMuted) startSoundtrack();
+        return c.state === 'running';
+      })();
+    }
+    return audioUnlockPromise;
+  }
+
+  function bindAudioUnlock() {
+    const once = () => { unlockAudio(); };
+    document.addEventListener('pointerdown', once, { capture: true, once: true });
+    document.addEventListener('keydown', once, { capture: true, once: true });
   }
 
   function initAudioBuses() {
@@ -2456,7 +2497,7 @@
       return;
     }
     masterBus.gain.setTargetAtTime(1, c.currentTime, 0.04);
-    sfxBus.gain.setTargetAtTime(0.9, c.currentTime, 0.04);
+    sfxBus.gain.setTargetAtTime(1.0, c.currentTime, 0.04);
     const musicVol = mode === 'playing' ? MUSIC_VOL_PLAY : MUSIC_VOL_TITLE;
     musicBus.gain.setTargetAtTime(musicVol, c.currentTime, 0.08);
   }
@@ -2505,8 +2546,8 @@
 
   const MUSIC_BPM = 116;
   const MUSIC_STEP = 60 / MUSIC_BPM / 2;
-  const MUSIC_VOL_TITLE = 0.32;   // audible on title so players notice the soundtrack
-  const MUSIC_VOL_PLAY  = 0.38;
+  const MUSIC_VOL_TITLE = 0.36;
+  const MUSIC_VOL_PLAY  = 0.42;
   const MUSIC_BASS = [82.4, 82.4, 73.4, 82.4, 65.4, 65.4, 73.4, 82.4];
   const MUSIC_MELODY = [329.6, 392, 440, 392, 329.6, 293.7, 329.6, 392, 440, 523.3, 440, 392];
 
@@ -2557,11 +2598,16 @@
   }
 
   function toggleMute() {
-    musicMuted = !musicMuted;
-    try { localStorage.setItem(MUTE_KEY, musicMuted ? '1' : '0'); } catch {}
-    applyAudioLevels();
-    syncMuteButton();
-    if (!musicMuted) startSoundtrack();
+    unlockAudio().then(() => {
+      musicMuted = !musicMuted;
+      try { localStorage.setItem(MUTE_KEY, musicMuted ? '1' : '0'); } catch {}
+      applyAudioLevels();
+      syncMuteButton();
+      if (!musicMuted) {
+        blip(440, 0.08, 'sine', 0.06, 660);
+        startSoundtrack();
+      }
+    });
   }
 
   function syncMuteButton() {
@@ -2720,8 +2766,9 @@
   // ═════════════════════════════════════════════════════════════════════
   function press(e) {
     if (e && e.cancelable) e.preventDefault();
-    audio();
+    unlockAudio();
     if (mode === 'title' || mode === 'gameover') {
+      if (e && e.target && e.target.closest && e.target.closest('.bigbtn')) return;
       startGame();
       return;
     }
@@ -2757,8 +2804,8 @@
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
   });
-  if (btnStart) btnStart.addEventListener('click', () => startGame());
-  if (btnRetry) btnRetry.addEventListener('click', () => startGame());
+  if (btnStart) btnStart.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio().then(() => startGame()); });
+  if (btnRetry) btnRetry.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio().then(() => startGame()); });
   if (elMuteBtn) {
     elMuteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2901,7 +2948,8 @@
     logRunTheme();
   }
 
-  function startGame() {
+  async function startGame() {
+    await unlockAudio();
     resetRun();
     state.runStartT = RUN_START_TIME;
     startSoundtrack();
@@ -4511,7 +4559,14 @@
     // ── HUD ── (defensive — missing elements must never freeze the loop)
     syncPowerHud();
     setText(elScore, state.score.toLocaleString());
-    setText(elBest,  'BEST ' + Math.max(state.best, state.score).toLocaleString());
+    const bestNum = Math.max(state.best, state.score).toLocaleString();
+    const bestEl = elBest;
+    if (bestEl) {
+      const narrow = isNarrowHud();
+      bestEl.textContent = narrow ? bestNum : ('BEST ' + bestNum);
+      bestEl.title = 'Best score ' + bestNum;
+      bestEl.classList.toggle('best-pill--compact', narrow);
+    }
     setText(elCombo, '×' + state.combo);
     if (elCombo) {
       elCombo.classList.toggle('hot',   state.combo >= 8  && state.combo < 16);
@@ -4519,8 +4574,10 @@
     }
     syncThemeHud();
     syncPlayHints();
+    const hudDock = document.querySelector('.hud-dock');
+    if (hudDock) hudDock.classList.toggle('hud-dock--narrow', isNarrowHud());
     if (elHeatPill) {
-      if (state.heatTier >= 1) {
+      if (state.heatTier >= 1 && !isNarrowHud()) {
         elHeatPill.classList.remove('hidden');
         setText(elHeatPill, 'HEAT ×' + state.heatTier + (state.surgeT > 0 ? ' · RUSH' : ''));
         elHeatPill.classList.toggle('surge', state.surgeT > 0);
@@ -5340,14 +5397,18 @@
     }
   }
   function drawPopups() {
+    const narrowWorld = typeof window !== 'undefined' && window.innerWidth < 520;
+    const maxPopW = narrowWorld ? W * 0.42 : W * 0.55;
     for (const p of state.popups) {
       const a = clamp(p.life / p.max, 0, 1);
       const pop = a < 0.85 ? 1 + (1 - a / 0.85) * (p.big ? 0.45 : 0.25) : 1;
+      const basePx = p.big ? (narrowWorld ? 22 : 30) : (narrowWorld ? 16 : 22);
+      const fontPx = fitFontSize(p.text, maxPopW / pop, basePx, p.big ? 14 : 11);
       ctx.save();
       ctx.globalAlpha = a;
       ctx.translate(p.x, p.y);
       ctx.scale(pop, pop);
-      ctx.font = (p.big ? 'bold 30px' : 'bold 22px') + ' ui-rounded, Nunito, system-ui, sans-serif';
+      ctx.font = 'bold ' + fontPx + 'px ui-rounded, Nunito, system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.lineWidth = p.big ? 5 : 4;
       ctx.strokeStyle = '#1a0f3a';
@@ -6067,6 +6128,6 @@
   resetRun();
   setMode('title');
   syncMuteButton();
-  startSoundtrack();
+  bindAudioUnlock();
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();
