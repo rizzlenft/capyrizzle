@@ -1,50 +1,54 @@
 # Deploy CapyRizzle Rush (GitHub Pages)
 
-Do this once before the CapyJam form. Estimated time: ~10 minutes.
+**Repo:** [github.com/rizzlenft/capyrizzle](https://github.com/rizzlenft/capyrizzle)  
+**Play URL (after setup):** [rizzlenft.github.io/capyrizzle](https://rizzlenft.github.io/capyrizzle/)
 
-## 1. Commit
+---
+
+## If Actions failed with “Get Pages site failed”
+
+That error means **GitHub Pages was not turned on yet**. Use this flow (works on new repos):
+
+### Step 1 — Push latest code
 
 ```bash
 cd /Users/rizzle/Projects/capyrizzle-rush
-git add index.html style.css game.js README.md SUBMISSION.md DEPLOY.md tools/
-git commit -m "CapyJam submit-ready: billboards, soundtrack, mute, docs"
+git push origin main
 ```
 
-## 2. Create GitHub repo & push
+### Step 2 — Wait for the green workflow
 
-On github.com: **New repository** → name `capyrizzle-rush` → Public → no template.
+1. Open [Actions](https://github.com/rizzlenft/capyrizzle/actions)
+2. Open **Deploy to GitHub Pages**
+3. Wait until the latest run shows a **green check** (creates a `gh-pages` branch)
+
+### Step 3 — Turn on Pages (one-time)
+
+1. Open [Settings → Pages](https://github.com/rizzlenft/capyrizzle/settings/pages)
+2. Under **Build and deployment** → **Source**, choose **Deploy from a branch**
+3. **Branch:** `gh-pages` · **Folder:** `/ (root)` · **Save**
+
+After 1–2 minutes, open:
+
+**https://rizzlenft.github.io/capyrizzle/**
+
+---
+
+## Day-to-day pushes
 
 ```bash
-git remote add origin https://github.com/rizzlenft/capyrizzle.git
-git push -u origin main
+git add .
+git commit -m "your message"
+git push
 ```
 
-## 3. Enable Pages
+The workflow rebuilds `gh-pages` automatically on every push to `main`.
 
-**Option A — GitHub Actions (recommended, already in repo)**
+---
 
-Repo → **Settings** → **Pages** → Build and deployment → Source: **GitHub Actions**.
+## CapyJam submit
 
-The workflow `.github/workflows/pages.yml` runs on every push to `main`. First deploy takes ~2 min.
-
-**Option B — Branch deploy**
-
-Settings → Pages → Source: **Deploy from branch** → `main` / `/ (root)`.
-
-Playable URL (either option):
-
-`https://<YOUR_USER>.github.io/capyrizzle-rush/`
-
-## 4. Verify (incognito)
-
-- Title → PLAY → full run → game over
-- 🔊 mute toggles music + SFX; refresh remembers preference
-- Billboards show readable text (no blank tan boards)
-- `?debug=1` shows build `v23.0-submit-ready`
-
-## 5. Submit
-
-1. Jam page → **Submit game** → paste the Pages URL above  
-2. X post: clip + `@_summer_plays_` + `#capyjam`
+1. Jam form → paste `https://rizzlenft.github.io/capyrizzle/`
+2. X → gameplay clip + `@_summer_plays_` + `#capyjam`
 
 See [SUBMISSION.md](SUBMISSION.md) for the full checklist.
