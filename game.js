@@ -23,7 +23,7 @@
  */
 
 (() => {
-  const BUILD = 'v27.3-mobile-compact';
+  const BUILD = 'v27.4-mobile-fix';
 
   // ═════════════════════════════════════════════════════════════════════
   //   TIME-OF-DAY MOODS
@@ -192,11 +192,18 @@
     return isTouchUi();
   }
 
+  function isPortraitMobile() {
+    if (!isTouchUi()) return false;
+    return window.matchMedia('(orientation: portrait)').matches
+      || window.innerHeight >= window.innerWidth;
+  }
+
   function syncUiMode() {
     const frame = document.getElementById('frame');
     const short = frame ? frame.clientHeight < 420 : window.innerHeight < 480;
     document.documentElement.classList.toggle('touch-ui', isTouchUi());
     document.documentElement.classList.toggle('short-frame', short);
+    document.documentElement.classList.toggle('portrait-mobile', isPortraitMobile());
   }
 
   function syncPlayHints() {
@@ -2496,8 +2503,31 @@
     return ac;
   }
 
+  let html5AudioPrimed = false;
+  let audioGestureUnlocked = false;
+
+  /** Safari often needs a silent HTML5 play() in the same gesture as Web Audio. */
+  function primeHtml5Audio() {
+    if (html5AudioPrimed) return;
+    html5AudioPrimed = true;
+    try {
+      const el = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
+      el.setAttribute('playsinline', '');
+      el.volume = 0.001;
+      el.muted = false;
+      const p = el.play();
+      if (p && typeof p.then === 'function') p.catch(() => {});
+    } catch (_) {}
+  }
+
+  function hideSoundHint() {
+    const hint = document.getElementById('soundHint');
+    if (hint) hint.classList.add('hidden');
+  }
+
   /** iOS needs resume + a started node in the *same* user-gesture stack. */
   function unlockAudioSync() {
+    primeHtml5Audio();
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return false;
     if (!ac) ac = new AC();
@@ -2506,15 +2536,19 @@
       try { ac.resume(); } catch (_) { /* still try ping below */ }
     }
     if (!musicMuted) {
-      try {
-        const buf = ac.createBuffer(1, 1, ac.sampleRate);
-        const src = ac.createBufferSource();
-        src.buffer = buf;
-        src.connect(masterBus || ac.destination);
-        src.start(0);
-        blip(523, 0.07, 'sine', 0.09, 784);
-      } catch (_) {}
+      if (!audioGestureUnlocked) {
+        audioGestureUnlocked = true;
+        try {
+          const buf = ac.createBuffer(1, 1, ac.sampleRate);
+          const src = ac.createBufferSource();
+          src.buffer = buf;
+          src.connect(masterBus || ac.destination);
+          src.start(0);
+          blip(523, 0.07, 'sine', 0.09, 784);
+        } catch (_) {}
+      }
       startSoundtrack();
+      hideSoundHint();
     }
     applyAudioLevels();
     return ac.state === 'running' || ac.state === 'suspended';
@@ -2535,10 +2569,10 @@
   }
 
   function bindAudioUnlock() {
-    const once = () => { unlockAudioSync(); };
-    document.addEventListener('touchstart', once, { capture: true, passive: true, once: true });
-    document.addEventListener('pointerdown', once, { capture: true, once: true });
-    document.addEventListener('keydown', once, { capture: true, once: true });
+    const prime = () => { unlockAudioSync(); };
+    document.addEventListener('touchstart', prime, { capture: true, passive: true });
+    document.addEventListener('pointerdown', prime, { capture: true });
+    document.addEventListener('keydown', prime, { capture: true });
   }
 
   function initAudioBuses() {
@@ -2867,13 +2901,31 @@
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
   });
-  if (btnStart) btnStart.addEventListener('click', (e) => { e.stopPropagation(); unlockAudioSync(); startGame(); });
-  if (btnRetry) btnRetry.addEventListener('click', (e) => { e.stopPropagation(); unlockAudioSync(); startGame(); });
+  function bindPlayButton(btn) {
+    if (!btn) return;
+    const go = (e) => {
+      e.stopPropagation();
+      unlockAudioSync();
+      startGame();
+    };
+    btn.addEventListener('click', go);
+    btn.addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+      unlockAudioSync();
+    }, { passive: true });
+  }
+  bindPlayButton(btnStart);
+  bindPlayButton(btnRetry);
   if (elMuteBtn) {
     elMuteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      unlockAudioSync();
       toggleMute();
     });
+    elMuteBtn.addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+      unlockAudioSync();
+    }, { passive: true });
   }
 
   function queueJump() {

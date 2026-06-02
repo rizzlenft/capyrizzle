@@ -41,7 +41,7 @@ html, body {
   user-select: none;
 }
 
-/* Stage centers the 16:9 game frame; HUD/overlays live ON the frame. */
+/* Stage: game frame + full-screen scrollable menus (title / game over). */
 #stage {
   position: fixed;
   inset: 0;
@@ -63,6 +63,36 @@ html, body {
     0 0 0 2px rgba(255, 255, 255, 0.06),
     0 20px 60px rgba(0, 0, 0, 0.55),
     0 0 80px rgba(140, 107, 255, 0.25);
+  z-index: 2;
+}
+
+/* Portrait phones: stack menu under game — fixes 220px-tall letterbox clipping. */
+html.portrait-mobile #stage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  place-items: stretch;
+  height: 100dvh;
+  height: 100svh;
+  padding: 0;
+  overflow: hidden;
+}
+html.portrait-mobile #frame {
+  flex: 1 1 0;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  min-height: 38dvh;
+  max-height: none;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
+  border-radius: 0;
+  align-self: center;
+}
+html.portrait-mobile #game {
+  object-fit: cover;
+  object-position: center center;
 }
 
 #game {
@@ -582,22 +612,47 @@ html.touch-ui .pwr-readout,
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
 }
 
-/* ── Overlays (title / game over) ── */
+/* ── Overlays (title / game over) — scrollable, not trapped in short frame ── */
 .overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 8;
+  z-index: 12;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: clamp(12px, 3vmin, 28px);
+  padding: max(12px, env(safe-area-inset-top)) 12px max(20px, env(safe-area-inset-bottom));
   background:
     radial-gradient(ellipse at 50% 38%, rgba(10, 6, 35, 0.42), rgba(10, 6, 35, 0.9)),
     linear-gradient(180deg, rgba(10, 6, 35, 0.25) 0%, rgba(10, 6, 35, 0.97) 72%);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  pointer-events: auto;
+}
+
+html.portrait-mobile .overlay {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+  width: 100%;
+  max-height: min(46dvh, 420px);
+  min-height: 0;
+  z-index: 4;
+  border-top: 1px solid rgba(255, 247, 224, 0.12);
+}
+html.portrait-mobile #title.overlay {
+  background: linear-gradient(180deg, rgba(10, 6, 35, 0.92), rgba(10, 6, 35, 0.98));
+}
+html.portrait-mobile #gameover.overlay:not(.hidden) {
+  position: fixed;
+  inset: 0;
+  flex: none;
+  width: 100%;
+  max-height: none;
+  z-index: 20;
+  border-top: none;
 }
 
 #title.overlay {
@@ -845,6 +900,41 @@ html.touch-ui .mute-btn {
   letter-spacing: 0.22em;
   opacity: 0.55;
   line-height: 1.4;
+}
+
+.sound-hint {
+  margin: 0;
+  font-size: clamp(10px, 1.6vmin, 12px);
+  letter-spacing: 0.08em;
+  color: #a8e6ff;
+  opacity: 0.9;
+}
+.sound-hint.hidden { display: none !important; }
+
+html.portrait-mobile .sound-hint {
+  font-size: 11px;
+}
+
+html.portrait-mobile .go-panel {
+  gap: 8px;
+  padding-bottom: 8px;
+}
+html.portrait-mobile .gg {
+  font-size: clamp(28px, 8vmin, 40px);
+}
+html.portrait-mobile .rank-letter {
+  font-size: clamp(48px, 14vmin, 72px);
+}
+html.portrait-mobile .stat {
+  min-height: 56px;
+  padding: 8px 10px;
+}
+html.portrait-mobile .stat-value {
+  font-size: clamp(16px, 4.5vmin, 24px);
+}
+html.portrait-mobile .stats-mini {
+  font-size: 10px;
+  gap: 4px 8px;
 }
 
 .title-best {
