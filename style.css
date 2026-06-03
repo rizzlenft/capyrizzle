@@ -1132,6 +1132,14 @@ html.mobile-play .hud-dock {
   transform: none;
   background: rgba(26, 15, 58, 0.94);
 }
+html.mobile-play .mute-btn {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  right: max(10px, env(safe-area-inset-right, 0px));
+}
 html.mobile-play .mute-btn.mute-needs-tap {
   animation: none;
 }

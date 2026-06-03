@@ -23,12 +23,14 @@
  */
 
 (() => {
-  const BUILD = 'v27.7-perf-pass';
-  const MOBILE_MAX_PARTICLES = 48;
+  const BUILD = 'v27.8-mobile-quality';
+  const MOBILE_MAX_PARTICLES = 56;
+  const MOBILE_LITE_MAX_PARTICLES = 40;
   const DESKTOP_MAX_PARTICLES = 120;
-  const MAX_POPUPS = { mobile: 8, desktop: 16 };
+  const MAX_POPUPS = { mobile: 10, desktop: 16 };
   let frameTime = 0;
-  const framePerf = { mobile: false };
+  let mobileFpsEma = 58;
+  const framePerf = { mobile: false, mobileLite: false };
   const skyGradCache = { key: '', grad: null };
 
   // ═════════════════════════════════════════════════════════════════════
@@ -225,20 +227,23 @@
     document.documentElement.dataset.mode = mode;
   }
 
-  /** Fewer / wider skyline props on narrow portrait — seeded once per run. */
+  /** Fewer / wider skyline props on narrow desktop viewports only. */
   function isCompactWorld() {
-    if (isMobilePlay()) return true;
     const w = typeof window !== 'undefined' ? window.innerWidth : W;
     const h = typeof window !== 'undefined' ? window.innerHeight : H;
     return w < 520 || (w < 900 && h > w);
   }
 
   function particleBurst(n) {
-    return isMobilePlay() ? Math.max(1, Math.round(n * 0.42)) : n;
+    if (!framePerf.mobile) return n;
+    const mul = framePerf.mobileLite ? 0.38 : 0.52;
+    return Math.max(1, Math.round(n * mul));
   }
 
   function trimParticles() {
-    const max = isMobilePlay() ? MOBILE_MAX_PARTICLES : DESKTOP_MAX_PARTICLES;
+    let max = DESKTOP_MAX_PARTICLES;
+    if (framePerf.mobileLite) max = MOBILE_LITE_MAX_PARTICLES;
+    else if (framePerf.mobile) max = MOBILE_MAX_PARTICLES;
     if (state.particles.length > max) state.particles.length = max;
   }
 
@@ -395,10 +400,31 @@
   function refreshFrameClock(now) {
     frameTime = now;
     framePerf.mobile = isMobilePlay();
+    framePerf.mobileLite = false;
+  }
+
+  function trackMobileFps(dt) {
+    if (!framePerf.mobile) return;
+    const fps = 1 / Math.max(dt, 0.001);
+    mobileFpsEma = mobileFpsEma * 0.9 + fps * 0.1;
+    framePerf.mobileLite = mobileFpsEma < 50;
   }
 
   function cosmeticCullPad() {
-    return framePerf.mobile ? 100 : 160;
+    if (framePerf.mobileLite) return 72;
+    if (framePerf.mobile) return 120;
+    return 160;
+  }
+
+  function useLighterBlend() {
+    return !framePerf.mobile && !framePerf.mobileLite;
+  }
+
+  /** Desktop narrow windows only — never fold mobile into this path. */
+  function seedCount(desktop, compact, mobile) {
+    if (isMobilePlay()) return mobile;
+    if (isCompactWorld()) return compact;
+    return desktop;
   }
 
   function getSkyGradient() {
@@ -670,8 +696,8 @@
     const cp = !mp && isCompactWorld();
 
     // ── Smoke columns rising from the burning city ──────────────────
-    const SMOKE_SPACING = mp ? 320 : 240;
-    const smokeN = mp ? 5 : cp ? 8 : 14;
+    const SMOKE_SPACING = mp ? 280 : 240;
+    const smokeN = seedCount(14, 8, 6);
     for (let i = 0; i < smokeN; i++) {
       Cosmetics.add({
         layer: 'skylineBg',
@@ -687,8 +713,8 @@
 
     // ── Murals on mid-rise walls (skyline bg) ───────────────────────
     const MURAL_TAGS = ['WET  IS  BEST', 'CAPY  PRIDE', 'SOAK  DAILY', 'HAY  O  CLOCK', 'RIVAL  BEAVER?  NO'];
-    const MURAL_SPACING = mp ? 560 : 420;
-    const muralN = mp ? 3 : cp ? 5 : 7;
+    const MURAL_SPACING = mp ? 480 : 420;
+    const muralN = seedCount(7, 5, 4);
     for (let i = 0; i < muralN; i++) {
       Cosmetics.add({
         layer: 'skylineBg',
@@ -702,7 +728,7 @@
     }
 
     // ── Colossal capy statues on the horizon ────────────────────────
-    const statueN = mp ? 1 : 3;
+    const statueN = seedCount(3, 2, 2);
     for (let i = 0; i < statueN; i++) {
       Cosmetics.add({
         layer: 'farBg',
@@ -725,7 +751,7 @@
       { y: 145, vx: -13, color: balloons[2] },
       { y:  48, vx: -15, color: balloons[3] },
     ];
-    const balloonList = mp ? BALLOONS.slice(0, 4) : BALLOONS;
+    const balloonList = mp ? BALLOONS.slice(0, 6) : BALLOONS;
     balloonList.forEach((b, i) => {
       Cosmetics.add({
         layer: 'sky',
@@ -749,7 +775,7 @@
         draw: drawGliderCapy,
       });
     });
-    const cloudN = mp ? 3 : cp ? 4 : 6;
+    const cloudN = seedCount(6, 4, 4);
     for (let i = 0; i < cloudN; i++) {
       Cosmetics.add({
         layer: 'sky',
@@ -760,7 +786,7 @@
         draw: drawCloudCapy,
       });
     }
-    const blimpN = mp ? 1 : 2;
+    const blimpN = seedCount(2, 2, 2);
     for (let i = 0; i < blimpN; i++) {
       Cosmetics.add({
         layer: 'sky',
@@ -788,7 +814,7 @@
         draw: drawCableCarCapy,
       });
     }
-    const confettiN = mp ? 3 : cp ? 6 : 10;
+    const confettiN = seedCount(10, 6, 5);
     for (let i = 0; i < confettiN; i++) {
       Cosmetics.add({
         layer: 'sky',
@@ -810,8 +836,8 @@
       'NAP  APPROVED', 'CHONK  ENERGY', 'WET  DOG  VIBES', 'MELON  KING',
     ];
     const compactWorld = cp || mp;
-    const BILL_SPACING = mp ? 760 : compactWorld ? 640 : 480;
-    const billCount = mp ? 5 : compactWorld ? 8 : 12;
+    const BILL_SPACING = mp ? 620 : compactWorld ? 640 : 480;
+    const billCount = seedCount(12, 8, 7);
     for (let i = 0; i < billCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -825,8 +851,8 @@
       });
     }
 
-    const WIN_SPACING = mp ? 160 : compactWorld ? 130 : 100;
-    const winCount = mp ? 10 : compactWorld ? 22 : 36;
+    const WIN_SPACING = mp ? 220 : compactWorld ? 130 : 100;
+    const winCount = seedCount(36, 22, 6);
     for (let i = 0; i < winCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -847,7 +873,7 @@
       'GO  RIZZLE', 'PUT  IT  OUT', 'HERO', 'WE  ♥  CAPY', 'SAVE  US',
       'MORE  WATER', 'SPLASH', 'CAPY  FD', 'HONK  HONK', 'SOAK  CITY',
     ];
-    const roofN = mp ? 5 : cp ? 7 : 10;
+    const roofN = seedCount(10, 7, 6);
     for (let i = 0; i < roofN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -861,8 +887,8 @@
       });
     }
 
-    const ESC_SPACING = mp ? 360 : 280;
-    const escN = mp ? 4 : cp ? 6 : 8;
+    const ESC_SPACING = mp ? 320 : 280;
+    const escN = seedCount(8, 6, 5);
     for (let i = 0; i < escN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -875,7 +901,7 @@
       });
     }
 
-    const tubN = mp ? 2 : 4;
+    const tubN = seedCount(4, 3, 3);
     for (let i = 0; i < tubN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -886,8 +912,8 @@
       });
     }
 
-    const PARADE_SPACING = mp ? 900 : 720;
-    const paradeN = mp ? 2 : 4;
+    const PARADE_SPACING = mp ? 800 : 720;
+    const paradeN = seedCount(4, 3, 3);
     for (let i = 0; i < paradeN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -901,8 +927,8 @@
       });
     }
 
-    const SIDE_SPACING = mp ? 280 : 200;
-    const sideN = mp ? 8 : cp ? 12 : 16;
+    const SIDE_SPACING = mp ? 240 : 200;
+    const sideN = seedCount(16, 12, 10);
     for (let i = 0; i < sideN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -914,8 +940,8 @@
         draw: drawSidewalkCapy,
       });
     }
-    const MELON_SPACING = mp ? 620 : 480;
-    const melonN = mp ? 2 : cp ? 3 : 5;
+    const MELON_SPACING = mp ? 540 : 480;
+    const melonN = seedCount(5, 3, 3);
     for (let i = 0; i < melonN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -926,7 +952,7 @@
         draw: drawMelonCartCapy,
       });
     }
-    const koolN = mp ? 1 : 3;
+    const koolN = seedCount(3, 2, 2);
     for (let i = 0; i < koolN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -936,7 +962,7 @@
         draw: drawKoolAidCapy,
       });
     }
-    const papN = mp ? 2 : 4;
+    const papN = seedCount(4, 3, 3);
     for (let i = 0; i < papN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -948,7 +974,7 @@
       });
     }
 
-    const emberN = mp ? 8 : cp ? 14 : 18;
+    const emberN = seedCount(18, 14, 10);
     for (let i = 0; i < emberN; i++) {
       Cosmetics.add({
         layer: 'farBg',
@@ -963,8 +989,8 @@
       });
     }
 
-    const RIZZLE_SPACING = mp ? 1600 : compactWorld ? 1400 : 1100;
-    const rizzleCount = mp ? 2 : compactWorld ? 3 : 5;
+    const RIZZLE_SPACING = mp ? 1300 : compactWorld ? 1400 : 1100;
+    const rizzleCount = seedCount(5, 3, 3);
     for (let i = 0; i < rizzleCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -977,9 +1003,9 @@
 
     // ── Pass 2: neon rooftops, balcony parties, searchlights ─────────
     const narrowWorld = compactWorld;
-    const NEON_SPACING = mp ? 640 : narrowWorld ? 560 : 400;
+    const NEON_SPACING = mp ? 520 : narrowWorld ? 560 : 400;
     const NEON_MSGS = ['CAPY SPA', 'SOAK BAR', 'RIZZLE FM', 'CHONK HQ', 'WET DOG'];
-    const neonCount = mp ? 3 : narrowWorld ? 5 : 8;
+    const neonCount = seedCount(8, 5, 4);
     for (let i = 0; i < neonCount; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -992,8 +1018,8 @@
         draw: drawNeonRooftopSign,
       });
     }
-    const BALCONY_SPACING = mp ? 320 : 240;
-    const balconyN = mp ? 4 : cp ? 8 : 12;
+    const BALCONY_SPACING = mp ? 280 : 240;
+    const balconyN = seedCount(12, 8, 5);
     for (let i = 0; i < balconyN; i++) {
       Cosmetics.add({
         layer: 'skylineFg',
@@ -1019,8 +1045,8 @@
     }
 
     // ── Pass 3: street-level capy life (hydrants, manholes, puddles) ─
-    const HYDRANT_SPACING = mp ? 440 : 340;
-    const hydrantN = mp ? 4 : cp ? 5 : 7;
+    const HYDRANT_SPACING = mp ? 380 : 340;
+    const hydrantN = seedCount(7, 5, 5);
     for (let i = 0; i < hydrantN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -1031,8 +1057,8 @@
         draw: drawHydrantCapy,
       });
     }
-    const HOLE_SPACING = mp ? 520 : 420;
-    const holeN = mp ? 3 : 6;
+    const HOLE_SPACING = mp ? 460 : 420;
+    const holeN = seedCount(6, 4, 4);
     for (let i = 0; i < holeN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -1043,7 +1069,7 @@
         draw: drawManholeCapy,
       });
     }
-    const puddleN = mp ? 4 : 8;
+    const puddleN = seedCount(8, 5, 5);
     for (let i = 0; i < puddleN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -1054,7 +1080,7 @@
         draw: drawPuddleReflection,
       });
     }
-    const chalkN = mp ? 3 : 6;
+    const chalkN = seedCount(6, 4, 4);
     for (let i = 0; i < chalkN; i++) {
       Cosmetics.add({
         layer: 'sidewalk',
@@ -1095,8 +1121,8 @@
     }
 
     // ── Pass 5: mega capy skyscrapers (wide cosmetic landmarks) ───────
-    const MEGA_SPACING = mp ? 2600 : 2000;
-    const megaN = mp ? 1 : cp ? 2 : 4;
+    const MEGA_SPACING = mp ? 2200 : 2000;
+    const megaN = seedCount(4, 2, 2);
     for (let i = 0; i < megaN; i++) {
       Cosmetics.add({
         layer: 'skylineBg',
@@ -1382,7 +1408,17 @@
 
   function drawWindowCapy(c) {
     const x = c.x, y = c.y;
-    const blinds = c.blinds !== false && !isMobilePlay();
+    if (framePerf.mobile) {
+      ctx.save();
+      ctx.fillStyle = '#1a0f3a';
+      rrect(x - 14, y - 14, 28, 28, 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255, 200, 120, 0.8)';
+      rrect(x - 12, y - 12, 24, 24, 2); ctx.fill();
+      drawTinyCapy(x, y + 2, 5.5, { mouth: 'smile', hatType: c.hatType });
+      ctx.restore();
+      return;
+    }
+    const blinds = c.blinds !== false;
     const open = 0.42 + 0.58 * Math.sin(c.phase * 0.85 + (c.blindOff || 0));
     ctx.save();
     ctx.fillStyle = '#1a0f3a';
@@ -2086,10 +2122,10 @@
       rrect(ox + 4, y + 2, 10, 6, 2); ctx.fill();
     }
     if (flash) {
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = 'rgba(255, 247, 224, 0.85)';
+      if (useLighterBlend()) ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = framePerf.mobile ? 'rgba(255, 247, 224, 0.65)' : 'rgba(255, 247, 224, 0.85)';
       ctx.beginPath();
-      ctx.arc(x, y - 20, 28, 0, Math.PI * 2);
+      ctx.arc(x, y - 20, framePerf.mobile ? 22 : 28, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -2144,23 +2180,34 @@
   function drawNeonText(cx, cy, text, seed, colors, opts) {
     colors = colors || ['#ff5a8a', '#ffd24a'];
     opts = opts || {};
-    const flick = 0.65 + 0.35 * Math.abs(Math.sin(frameTime / 90 + seed * 2.1));
-    const dim = (frameTime / 350 + seed * 1.7) % 2 > 1.92;
-    ctx.save();
     let fontPx = opts.fontPx || 11;
     const maxW = opts.maxW;
     if (maxW) fontPx = fitFontSize(text, maxW, fontPx, 7);
+    ctx.save();
     ctx.font = 'bold ' + fontPx + 'px ui-rounded, Nunito, system-ui, sans-serif';
     ctx.textAlign = opts.align || 'center';
     ctx.textBaseline = 'middle';
     const tw = ctx.measureText(text).width;
+    if (framePerf.mobile) {
+      if (opts.backdrop) {
+        ctx.fillStyle = 'rgba(12, 6, 32, 0.88)';
+        rrect(cx - tw / 2 - 5, cy - fontPx * 0.55, tw + 10, fontPx + 5, 3);
+        ctx.fill();
+      }
+      ctx.fillStyle = colors[0];
+      ctx.fillText(text, cx, cy);
+      ctx.restore();
+      return;
+    }
+    const flick = 0.65 + 0.35 * Math.abs(Math.sin(frameTime / 90 + seed * 2.1));
+    const dim = (frameTime / 350 + seed * 1.7) % 2 > 1.92;
     if (opts.backdrop) {
       ctx.globalCompositeOperation = 'source-over';
       ctx.fillStyle = 'rgba(12, 6, 32, 0.9)';
       rrect(cx - tw / 2 - 6, cy - fontPx * 0.55, tw + 12, fontPx + 6, 3);
       ctx.fill();
     }
-    ctx.globalCompositeOperation = 'lighter';
+    if (useLighterBlend()) ctx.globalCompositeOperation = 'lighter';
     ctx.shadowColor = colors[0];
     ctx.shadowBlur = 14 * flick;
     ctx.fillStyle = dim ? 'rgba(90, 40, 120, 0.5)' : colors[0];
@@ -2173,7 +2220,7 @@
 
   function drawNeonRooftopSign(c) {
     const x = c.x, y = c.y;
-    const narrowWorld = typeof window !== 'undefined' && window.innerWidth < 520;
+    const narrowWorld = framePerf.mobile || (typeof window !== 'undefined' && window.innerWidth < 520);
     const bw = narrowWorld ? 100 : 124;
     const bh = narrowWorld ? 34 : 40;
     const cy = y + 12;
@@ -2468,9 +2515,9 @@
     ctx.beginPath();
     ctx.ellipse(sx, baseY, 36 * scale, 8 * scale, 0, 0, Math.PI * 2);
     ctx.fill();
-    // puff stack
-    for (let i = 0; i < 9; i++) {
-      const t = i / 8;
+    const puffN = framePerf.mobileLite ? 5 : framePerf.mobile ? 7 : 9;
+    for (let i = 0; i < puffN; i++) {
+      const t = i / Math.max(1, puffN - 1);
       const py = baseY - i * 26 * scale - 8;
       const sway = Math.sin(c.phase * 0.5 + i * 0.6) * (4 + i * 2) * scale;
       const radius = (16 + i * 4) * scale;
@@ -4530,6 +4577,7 @@
     // Jump-input buffer decays in real time (so airborne taps within
     // JUMP_BUFFER seconds of touchdown still register).
     if (t.jumpBuffer > 0) t.jumpBuffer = Math.max(0, t.jumpBuffer - dt);
+    if (framePerf.mobile && t.jumpBuffer > 0) t.jumpBuffer = Math.max(t.jumpBuffer, 0.2);
 
     if (t.crouchT > 0) {
       t.crouchT -= dt;
@@ -5040,7 +5088,7 @@
     ctx.save();
     const tw = frameTime / 900;
     const starRGB = hexToRgb(mood.starTint);
-    const starN = framePerf.mobile ? 40 : 70;
+    const starN = framePerf.mobileLite ? 32 : framePerf.mobile ? 52 : 70;
     for (let i = 0; i < starN; i++) {
       const sx = (i * 97.13)  % W;
       const sy = (i * 53.71)  % (GROUND_Y * 0.55);
@@ -5148,14 +5196,21 @@
     const offset = -(scroll - start * TILE);
     ctx.save();
     const season = getCostumeSeason();
-    if (!isMobilePlay()) {
+    if (framePerf.mobile) {
+      drawMegaCapySkyline(scroll, TILE * 3.5, baseY, 5000, {
+        color: '#2a1a5a',
+        windowColor: 'rgba(255, 200, 100, 0.5)',
+        neon: season.neon,
+        scale: 0.62,
+      });
+    } else {
       drawMegaCapySkyline(scroll, TILE * 3.2, baseY, 5000, {
         color: '#2a1a5a',
         windowColor: 'rgba(255, 200, 100, 0.55)',
         neon: season.neon,
       });
     }
-    const farTiles = framePerf.mobile ? 4 : 6;
+    const farTiles = framePerf.mobile ? 5 : 6;
     for (let i = 0; i < farTiles; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
@@ -5164,7 +5219,7 @@
         color: '#2a1a5a',
         windowColor: 'rgba(255, 200, 100, 0.55)',
         minH: 80, maxH: 180,
-        flicker: true,
+        flicker: !framePerf.mobile,
       });
     }
     ctx.restore();
@@ -5179,14 +5234,20 @@
     const start = Math.floor(scroll / TILE) - 1;
     const offset = -(scroll - start * TILE);
     ctx.save();
-    if (!isMobilePlay()) {
+    if (framePerf.mobile) {
+      drawMegaCapySkyline(scroll, TILE * 3.6, baseY, 9000, {
+        color: '#12051f',
+        windowColor: 'rgba(255, 170, 80, 0.38)',
+        scale: 0.55,
+      });
+    } else {
       drawMegaCapySkyline(scroll, TILE * 3.5, baseY, 9000, {
         color: '#12051f',
         windowColor: 'rgba(255, 170, 80, 0.4)',
         scale: 0.78,
       });
     }
-    const fgTiles = framePerf.mobile ? 3 : 5;
+    const fgTiles = framePerf.mobile ? 4 : 5;
     for (let i = 0; i < fgTiles; i++) {
       const tileIdx = start + i;
       const tileX = offset + i * TILE;
@@ -5399,8 +5460,17 @@
 
   // Dark vignette above the road so ground obstacles always pop visually.
   function drawHudScrim() {
-    if (isMobilePlay()) return;
     if (mode !== 'playing' && mode !== 'dying') return;
+    if (framePerf.mobile) {
+      ctx.save();
+      const botG = ctx.createLinearGradient(0, H - 88, 0, H);
+      botG.addColorStop(0, 'rgba(10, 6, 35, 0)');
+      botG.addColorStop(1, 'rgba(10, 6, 35, 0.5)');
+      ctx.fillStyle = botG;
+      ctx.fillRect(0, H - 88, W, 88);
+      ctx.restore();
+      return;
+    }
     ctx.save();
     const topG = ctx.createLinearGradient(0, 0, 0, 108);
     topG.addColorStop(0, 'rgba(10, 6, 35, 0.68)');
@@ -5416,6 +5486,7 @@
   }
 
   function drawDangerVignette() {
+    if (framePerf.mobileLite) return;
     ctx.save();
     const g = ctx.createLinearGradient(0, GROUND_Y - 80, 0, GROUND_Y);
     g.addColorStop(0, 'rgba(10, 6, 35, 0)');
@@ -5774,7 +5845,7 @@
     ctx.strokeText(label, 0, 0);
     ctx.fillStyle = label === 'GO!' ? '#ffe24c' : season.accent;
     ctx.fillText(label, 0, 0);
-    if (label === 'GO!') {
+    if (label === 'GO!' && useLighterBlend()) {
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = 0.35;
       ctx.beginPath();
@@ -5793,8 +5864,15 @@
   }
 
   function drawBoostOverlay() {
-    if (!state.boosting) return;
+    if (!state.boosting || framePerf.mobileLite) return;
     ctx.save();
+    if (framePerf.mobile) {
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = 'rgba(255, 140, 60, 0.35)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+      return;
+    }
     ctx.globalCompositeOperation = 'screen';
     const g = ctx.createRadialGradient(W * 0.5, H * 0.55, H * 0.25, W * 0.5, H * 0.55, H * 0.95);
     g.addColorStop(0, 'rgba(255, 210, 80, 0)');
@@ -6401,6 +6479,7 @@
     let dt = (now - lastT) / 1000;
     lastT = now;
     if (dt > 0.05) dt = 0.05;
+    trackMobileFps(dt);
     // slow-mo: gameplay dt is scaled down, but slowMo timer decrements in real time.
     // Only applies while actively playing — never extends death/freeze windows.
     let gameDt = dt;
@@ -6470,6 +6549,14 @@
   syncUiMode();
   bindAudioUnlock();
   window.addEventListener('resize', syncUiMode);
-  window.addEventListener('orientationchange', () => setTimeout(syncUiMode, 120));
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+      syncUiMode();
+      if (mode === 'title') {
+        Cosmetics.clear();
+        seedCosmetics();
+      }
+    }, 120);
+  });
   requestAnimationFrame((t) => { lastT = t; requestAnimationFrame(frame); });
 })();
