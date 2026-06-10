@@ -24,7 +24,8 @@
 
 /* global OpenGameSDK */
 (() => {
-  const BUILD = 'v27.9-playfun-sdk';
+  const BUILD = 'v27.9.1-playfun-sdk';
+  const PLAYFUN_TEST = /[?&]playfun=1\b/.test(location.search);
   const PLAYFUN_GAME_ID = 'bb23b7ee-57e8-409b-86f6-a388694d558a';
   const MOBILE_MAX_PARTICLES = 56;
   const MOBILE_LITE_MAX_PARTICLES = 40;
@@ -423,7 +424,22 @@
   }
 
   // ── play.fun SDK (optional — only on play.fun / iframe host) ─────────
-  const playFun = { ogp: null, ready: false, lastSynced: 0, committing: false };
+  const playFun = { ogp: null, ready: false, lastSynced: 0, committing: false, boot: 'off' };
+
+  function paintPlayFunStatus() {
+    if (!PLAYFUN_TEST) return;
+    let el = document.getElementById('playfunStatus');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'playfunStatus';
+      el.setAttribute('aria-live', 'polite');
+      el.style.cssText = 'position:fixed;left:10px;bottom:10px;padding:6px 10px;font:11px/1.35 ui-monospace,monospace;background:rgba(20,12,48,.94);color:#9ad1ff;border:1px solid #5a7aff;border-radius:6px;z-index:10000;pointer-events:none;max-width:min(92vw,320px);';
+      document.body.appendChild(el);
+    }
+    let line = 'play.fun test · ' + playFun.boot;
+    if (playFun.ready) line += ' · ' + playFun.lastSynced + ' pts synced';
+    el.textContent = line;
+  }
 
   function isPlayFunHost() {
     try {
@@ -443,19 +459,29 @@
 
   function initPlayFun() {
     if (!isPlayFunHost() || typeof OpenGameSDK === 'undefined') return;
+    playFun.boot = 'init…';
+    paintPlayFunStatus();
     try {
       const ogp = new OpenGameSDK({
         gameId: PLAYFUN_GAME_ID,
         ui: { usePointsWidget: true, theme: 'dark' },
-        logLevel: 'warn',
+        logLevel: PLAYFUN_TEST ? 'info' : 'warn',
       });
       playFun.ogp = ogp;
       ogp.on('OnReady', () => {
         playFun.ready = true;
-        try { ogp.hidePoints(); } catch (e) {}
+        playFun.boot = 'ready';
+        paintPlayFunStatus();
+        if (!PLAYFUN_TEST) {
+          try { ogp.hidePoints(); } catch (e) {}
+        }
+        // eslint-disable-next-line no-console
+        console.info('[CapyRizzle] play.fun SDK ready');
       });
       ogp.init({ gameId: PLAYFUN_GAME_ID });
     } catch (e) {
+      playFun.boot = 'init failed';
+      paintPlayFunStatus();
       // eslint-disable-next-line no-console
       console.warn('[CapyRizzle] play.fun SDK init skipped:', e);
     }
@@ -463,17 +489,29 @@
 
   function bootPlayFun() {
     if (!isPlayFunHost()) return;
+    playFun.boot = 'host on';
+    paintPlayFunStatus();
+    // eslint-disable-next-line no-console
+    console.info('[CapyRizzle] play.fun host detected — booting SDK');
     if (typeof OpenGameSDK !== 'undefined') {
       initPlayFun();
       return;
     }
+    playFun.boot = 'loading SDK…';
+    paintPlayFunStatus();
     let tries = 0;
     const poll = setInterval(() => {
       tries += 1;
       if (typeof OpenGameSDK !== 'undefined') {
         clearInterval(poll);
         initPlayFun();
-      } else if (tries >= 40) clearInterval(poll);
+      } else if (tries >= 80) {
+        clearInterval(poll);
+        playFun.boot = 'SDK script missing';
+        paintPlayFunStatus();
+        // eslint-disable-next-line no-console
+        console.warn('[CapyRizzle] play.fun SDK script did not load — check network/adblock');
+      }
     }, 100);
   }
 
@@ -489,6 +527,7 @@
     const delta = score - playFun.lastSynced;
     if (delta <= 0) return;
     playFun.lastSynced = score;
+    paintPlayFunStatus();
     try {
       playFun.ogp.addPoints(delta);
     } catch (e) {
