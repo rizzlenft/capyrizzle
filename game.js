@@ -22,8 +22,10 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
+/* global OpenGameSDK */
 (() => {
-  const BUILD = 'v27.8-mobile-quality';
+  const BUILD = 'v27.9-playfun-sdk';
+  const PLAYFUN_GAME_ID = 'bb23b7ee-57e8-409b-86f6-a388694d558a';
   const MOBILE_MAX_PARTICLES = 56;
   const MOBILE_LITE_MAX_PARTICLES = 40;
   const DESKTOP_MAX_PARTICLES = 120;
@@ -418,6 +420,97 @@
 
   function useLighterBlend() {
     return !framePerf.mobile && !framePerf.mobileLite;
+  }
+
+  // ── play.fun SDK (optional — only on play.fun / iframe host) ─────────
+  const playFun = { ogp: null, ready: false, lastSynced: 0, committing: false };
+
+  function isPlayFunHost() {
+    try {
+      const p = new URLSearchParams(location.search);
+      if (p.get('playfun') === '0') return false;
+      if (p.get('playfun') === '1') return true;
+      if (p.get('gameId') === PLAYFUN_GAME_ID) return true;
+      if (/play\.fun/i.test(document.referrer || '')) return true;
+      try {
+        if (window.self !== window.top) return true;
+      } catch (e) {
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function initPlayFun() {
+    if (!isPlayFunHost() || typeof OpenGameSDK === 'undefined') return;
+    try {
+      const ogp = new OpenGameSDK({
+        gameId: PLAYFUN_GAME_ID,
+        ui: { usePointsWidget: true, theme: 'dark' },
+        logLevel: 'warn',
+      });
+      playFun.ogp = ogp;
+      ogp.on('OnReady', () => {
+        playFun.ready = true;
+        try { ogp.hidePoints(); } catch (e) {}
+      });
+      ogp.init({ gameId: PLAYFUN_GAME_ID });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[CapyRizzle] play.fun SDK init skipped:', e);
+    }
+  }
+
+  function bootPlayFun() {
+    if (!isPlayFunHost()) return;
+    if (typeof OpenGameSDK !== 'undefined') {
+      initPlayFun();
+      return;
+    }
+    let tries = 0;
+    const poll = setInterval(() => {
+      tries += 1;
+      if (typeof OpenGameSDK !== 'undefined') {
+        clearInterval(poll);
+        initPlayFun();
+      } else if (tries >= 40) clearInterval(poll);
+    }, 100);
+  }
+
+  function resetPlayFunRun() {
+    playFun.lastSynced = 0;
+    if (playFun.ogp && playFun.ready) {
+      try { playFun.ogp.hidePoints(); } catch (e) {}
+    }
+  }
+
+  function syncPlayFunScore(score) {
+    if (!playFun.ogp || !playFun.ready || playFun.committing) return;
+    const delta = score - playFun.lastSynced;
+    if (delta <= 0) return;
+    playFun.lastSynced = score;
+    try {
+      playFun.ogp.addPoints(delta);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[CapyRizzle] play.fun addPoints failed:', e);
+    }
+  }
+
+  function commitPlayFunRound(finalScore) {
+    if (!playFun.ogp || !playFun.ready || playFun.committing) return;
+    syncPlayFunScore(finalScore);
+    if (playFun.lastSynced <= 0) return;
+    playFun.committing = true;
+    Promise.resolve(playFun.ogp.endGame())
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn('[CapyRizzle] play.fun endGame failed:', e);
+      })
+      .finally(() => {
+        playFun.committing = false;
+        playFun.lastSynced = 0;
+      });
   }
 
   /** Desktop narrow windows only — never fold mobile into this path. */
@@ -3193,6 +3286,7 @@
     state.slowMo = 0;
     state.nextMilestone = MILESTONE_M;
     state.bonusScore = 0;
+    resetPlayFunRun();
 
     Object.assign(state.truck, {
       x: TRUCK_X, y: GROUND_Y - TRUCK_H, vy: 0,
@@ -3269,6 +3363,9 @@
       musicMuted = false;
       try { localStorage.setItem(MUTE_KEY, '0'); } catch {}
       syncMuteButton();
+    }
+    if (playFun.ogp && playFun.ready) {
+      try { playFun.ogp.showPoints(); } catch (e) {}
     }
     unlockAudioAsync().then(() => {
       resetRun();
@@ -3363,6 +3460,7 @@
       shieldSep && shieldSep.classList.add('hidden');
     }
     setMode('gameover');
+    commitPlayFunRound(final);
   }
 
   // Defensive DOM helper — guarantees a missing element can never freeze the
@@ -4571,6 +4669,7 @@
     state.scoreDist += distStep * (state.boosting ? BOOST_SCORE_MULT : 1);
     // score = boosted distance credit + bonuses (milestones double while boosting).
     state.score = Math.floor(state.scoreDist / 10) + state.bonusScore;
+    if (mode === 'playing') syncPlayFunScore(state.score);
 
     // ── Truck physics ────────────────────────────────────────────────
     const t = state.truck;
@@ -6547,6 +6646,7 @@
   setMode('title');
   syncMuteButton();
   syncUiMode();
+  bootPlayFun();
   bindAudioUnlock();
   window.addEventListener('resize', syncUiMode);
   window.addEventListener('orientationchange', () => {
