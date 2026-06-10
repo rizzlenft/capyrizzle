@@ -24,7 +24,7 @@
 
 /* global OpenGameSDK */
 (() => {
-  const BUILD = 'v27.9.1-playfun-sdk';
+  const BUILD = 'v27.9.2-playfun-sdk';
   const PLAYFUN_TEST = /[?&]playfun=1\b/.test(location.search);
   const PLAYFUN_GAME_ID = 'bb23b7ee-57e8-409b-86f6-a388694d558a';
   const MOBILE_MAX_PARTICLES = 56;
@@ -433,11 +433,14 @@
       el = document.createElement('div');
       el.id = 'playfunStatus';
       el.setAttribute('aria-live', 'polite');
-      el.style.cssText = 'position:fixed;left:10px;bottom:10px;padding:6px 10px;font:11px/1.35 ui-monospace,monospace;background:rgba(20,12,48,.94);color:#9ad1ff;border:1px solid #5a7aff;border-radius:6px;z-index:10000;pointer-events:none;max-width:min(92vw,320px);';
+      el.style.cssText = 'position:fixed;left:50%;top:max(8px,env(safe-area-inset-top,0px));transform:translateX(-50%);padding:8px 14px;font:12px/1.35 ui-monospace,monospace;font-weight:700;background:rgba(20,12,48,.96);color:#ffe24c;border:2px solid #5a7aff;border-radius:8px;z-index:10000;pointer-events:none;max-width:min(94vw,420px);text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.45);';
       document.body.appendChild(el);
     }
-    let line = 'play.fun test · ' + playFun.boot;
+    let line = 'PLAY.FUN TEST — ' + playFun.boot;
     if (playFun.ready) line += ' · ' + playFun.lastSynced + ' pts synced';
+    if (playFun.boot === 'SDK script missing') {
+      line += ' · allow sdk.play.fun / disable adblock';
+    }
     el.textContent = line;
   }
 
