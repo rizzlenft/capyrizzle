@@ -24,7 +24,7 @@
 
 /* global OpenGameSDK */
 (() => {
-  const BUILD = 'v27.9.2-playfun-sdk';
+  const BUILD = 'v27.9.3-playfun-mobile';
   const PLAYFUN_TEST = /[?&]playfun=1\b/.test(location.search);
   const PLAYFUN_GAME_ID = 'bb23b7ee-57e8-409b-86f6-a388694d558a';
   const MOBILE_MAX_PARTICLES = 56;
@@ -426,6 +426,15 @@
   // ── play.fun SDK (optional — only on play.fun / iframe host) ─────────
   const playFun = { ogp: null, ready: false, lastSynced: 0, committing: false, boot: 'off' };
 
+  function hostChromePx() {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue('--host-chrome-top').trim();
+      return parseInt(v, 10) || 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   function paintPlayFunStatus() {
     if (!PLAYFUN_TEST) return;
     let el = document.getElementById('playfunStatus');
@@ -433,9 +442,10 @@
       el = document.createElement('div');
       el.id = 'playfunStatus';
       el.setAttribute('aria-live', 'polite');
-      el.style.cssText = 'position:fixed;left:50%;top:max(8px,env(safe-area-inset-top,0px));transform:translateX(-50%);padding:8px 14px;font:12px/1.35 ui-monospace,monospace;font-weight:700;background:rgba(20,12,48,.96);color:#ffe24c;border:2px solid #5a7aff;border-radius:8px;z-index:10000;pointer-events:none;max-width:min(94vw,420px);text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.45);';
+      el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);padding:8px 14px;font:12px/1.35 ui-monospace,monospace;font-weight:700;background:rgba(20,12,48,.96);color:#ffe24c;border:2px solid #5a7aff;border-radius:8px;z-index:10000;pointer-events:none;max-width:min(94vw,420px);text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.45);';
       document.body.appendChild(el);
     }
+    el.style.top = 'calc(max(8px, env(safe-area-inset-top, 0px)) + ' + hostChromePx() + 'px)';
     let line = 'PLAY.FUN TEST — ' + playFun.boot;
     if (playFun.ready) line += ' · ' + playFun.lastSynced + ' pts synced';
     if (playFun.boot === 'SDK script missing') {
@@ -481,6 +491,16 @@
         // eslint-disable-next-line no-console
         console.info('[CapyRizzle] play.fun SDK ready');
       });
+      if (PLAYFUN_TEST) {
+        ogp.on('SavePointsSuccess', () => {
+          playFun.boot = 'saved ✓';
+          paintPlayFunStatus();
+        });
+        ogp.on('SavePointsFailed', () => {
+          playFun.boot = 'save failed';
+          paintPlayFunStatus();
+        });
+      }
       ogp.init({ gameId: PLAYFUN_GAME_ID });
     } catch (e) {
       playFun.boot = 'init failed';
@@ -492,6 +512,7 @@
 
   function bootPlayFun() {
     if (!isPlayFunHost()) return;
+    document.documentElement.classList.add('playfun-host');
     playFun.boot = 'host on';
     paintPlayFunStatus();
     // eslint-disable-next-line no-console
@@ -503,12 +524,13 @@
     playFun.boot = 'loading SDK…';
     paintPlayFunStatus();
     let tries = 0;
+    const maxTries = isTouchUi() ? 120 : 80;
     const poll = setInterval(() => {
       tries += 1;
       if (typeof OpenGameSDK !== 'undefined') {
         clearInterval(poll);
         initPlayFun();
-      } else if (tries >= 80) {
+      } else if (tries >= maxTries) {
         clearInterval(poll);
         playFun.boot = 'SDK script missing';
         paintPlayFunStatus();
@@ -6694,6 +6716,7 @@
   window.addEventListener('orientationchange', () => {
     setTimeout(() => {
       syncUiMode();
+      paintPlayFunStatus();
       if (mode === 'title') {
         Cosmetics.clear();
         seedCosmetics();

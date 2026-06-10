@@ -1149,3 +1149,8 @@ html.mobile-play #game {
 html.mobile-play .newbest {
   animation: none;
 }
+
+/* play.fun embed: keep our mute control clear of SDK widget (bottom-right). */
+html.playfun-host .mute-btn {
+  z-index: 9001;
+}
