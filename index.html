@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#2a1b6b" />
+<meta name="game:owner" content="rizzle" />
+<meta name="game:title" content="CapyRizzle Rush" />
+<meta name="game:event" content="capyjam-2026" />
+<meta name="x-ogp-key" content="d5fe5c12-ca4a-4f54-bebf-ecac8a3dbd7e" id="ogp-key-meta" />
+<script src="https://sdk.play.fun"></script>
+<meta name="description" content="One-button capy firetruck endless rush for CapyJam 2026 — jump every fire, boost the silly city." />
+<meta property="og:title" content="CapyRizzle Rush" />
+<meta property="og:description" content="Rizzle the capy firefighter sprints through a burning city. Tap to jump. Built for CapyJam 2026." />
+<title>CapyRizzle Rush</title>
+<link rel="stylesheet" href="style.css?v=27.9.3-playfun-mobile" />
+<script>
+(function () {
+  var top = 0;
+  try {
+    var p = new URLSearchParams(location.search);
+    var raw = p.get('chrome') || p.get('embedTop') || p.get('hostTop');
+    if (raw != null) top = Math.max(0, parseInt(raw, 10) || 0);
+    else if (p.has('embed') && p.get('embed') !== '0') top = 56;
+    else {
+      var embedded = false;
+      try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
+      if (embedded) top = 56;
+      else if (/play\.fun/i.test(document.referrer || '')) top = 56;
+    }
+  } catch (e) {}
+  if (top > 0) {
+    var r = document.documentElement;
+    r.classList.add('host-chrome');
+    r.style.setProperty('--host-chrome-top', top + 'px');
+    r.style.setProperty('--app-vh', 'calc(100vh - ' + top + 'px)');
+    r.style.setProperty('--app-svh', 'calc(100svh - ' + top + 'px)');
+    r.style.setProperty('--app-dvh', 'calc(100dvh - ' + top + 'px)');
+  }
+})();
+</script>
+</head>
+<body>
+  <div id="stage">
+    <div id="frame">
+      <canvas id="game" width="960" height="540" tabindex="0" aria-label="CapyRizzle Rush game"></canvas>
+
+      <div id="hud" class="hidden">
+        <header class="hud-dock" aria-label="Run status">
+          <div class="hud-zone hud-zone-left">
+            <span class="hud-score" id="score">0</span>
+            <span class="hud-pill combo-pill" id="combo">×1</span>
+          </div>
+          <div class="hud-zone hud-zone-mid" aria-label="Power-ups" aria-live="polite" aria-atomic="true">
+            <div class="pwr-slot" id="boostRow" title="Boost — blue buckets">
+              <span class="pwr-glyph water-icon" aria-hidden="true"></span>
+              <div class="pwr-track" aria-hidden="true"><div class="pwr-fill" id="boost"></div></div>
+              <span class="pwr-readout hidden" id="boostReadout"></span>
+            </div>
+            <div class="pwr-slot pwr-armor" id="armorRow" title="Armor — one save per run">
+              <span class="pwr-glyph armor-icon" aria-hidden="true"></span>
+              <span class="pwr-readout hidden" id="armorReadout"></span>
+            </div>
+          </div>
+          <div class="hud-zone hud-zone-right">
+            <span class="best-chase hidden" id="bestChase"></span>
+            <span class="hud-pill best-pill" id="best">BEST 0</span>
+            <span class="hud-meta theme-pill hidden" id="seasonPill" title="">☀️</span>
+            <span class="hud-meta heat-pill hidden" id="heatPill">HEAT ×1</span>
+          </div>
+        </header>
+        <div class="hud-bottom">
+          <div id="playHints" class="play-hints hidden" aria-live="polite">
+            <p class="play-hint hidden" id="hintJump">TAP to jump every fire</p>
+            <p class="play-hint hidden" id="hintWater">BOOST bucket = speed — still jump fires!</p>
+            <p class="play-hint hidden" id="hintShield">ARMOR star = one save this run</p>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" id="muteBtn" class="mute-btn" aria-pressed="false" aria-label="Mute sound" title="Mute sound">🔊</button>
+
+      <div id="comboPop" class="combo-pop hidden"></div>
+      <div id="milestonePop" class="milestone-pop hidden"></div>
+    </div>
+
+    <div id="title" class="overlay">
+      <div class="overlay-panel title-panel">
+        <p class="title-kicker">🦫 CapyJam 2026 · silly city sprint</p>
+        <h1 class="logo"><span class="line1">CAPYRIZZLE</span><span class="line2">RUSH</span></h1>
+        <p class="run-theme" id="titleTheme">☀️ SUMMER SOAK · DUSK</p>
+        <p class="tag" id="titleTag">Rizzle the capy firefighter races the burning city — <strong>TAP to jump every fire</strong>, soak the silly crowd.</p>
+        <ul class="legend legend--compact">
+          <li><span class="leg-icon water-icon" aria-hidden="true"></span><span class="legend-copy"><strong>BOOST</strong> — speed + 2× score (still jump fires)</span></li>
+          <li><span class="leg-icon armor-icon" aria-hidden="true"></span><span class="legend-copy"><strong>ARMOR</strong> — one save per run</span></li>
+        </ul>
+        <p class="sound-hint" id="soundHint">Tap PLAY for sound — 🔇 mutes during a run</p>
+        <button class="bigbtn" id="start" type="button"><span class="btn-emoji" aria-hidden="true">🦫</span> PLAY</button>
+        <p class="title-best hidden" id="titleBest"></p>
+        <p class="credit">new costume season every run · mega capy buildings ahead</p>
+      </div>
+    </div>
+
+    <div id="gameover" class="overlay hidden">
+      <div class="overlay-panel go-panel">
+        <h2 class="gg">WIPEOUT</h2>
+        <p class="run-theme go-theme" id="goTheme">This run: ☀️ SUMMER SOAK · DUSK</p>
+        <div class="rank-row">
+          <span class="rank-label">RANK</span>
+          <div class="rank-letter" id="finalRank">D</div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="stat-label">SCORE</div><div class="stat-value" id="finalScore">0</div></div>
+          <div class="stat"><div class="stat-label">BEST COMBO</div><div class="stat-value" id="finalCombo">×1</div></div>
+          <div class="stat"><div class="stat-label">FIRES CLEARED</div><div class="stat-value" id="finalSmashed">0</div></div>
+          <div class="stat"><div class="stat-label">BEST</div><div class="stat-value" id="finalBest">0</div></div>
+        </div>
+        <div class="stats-mini">
+          <span class="mini-stat"><span class="mini-label">DIST</span> <span id="finalDist">0m</span></span>
+          <span class="mini-sep" aria-hidden="true">·</span>
+          <span class="mini-stat"><span class="mini-label">TIME</span> <span id="finalTime">0:00</span></span>
+          <span class="mini-sep" aria-hidden="true">·</span>
+          <span class="mini-stat"><span class="mini-label">NEAR</span> <span id="finalNear">0</span></span>
+          <span class="mini-sep" aria-hidden="true">·</span>
+          <span class="mini-stat"><span class="mini-label">BOOSTS</span> <span id="finalBoosts">0</span></span>
+          <span class="mini-sep mini-shield-sep hidden" aria-hidden="true">·</span>
+          <span class="mini-stat mini-shield hidden"><span class="mini-label">ARMOR</span> <span id="finalShields">0</span></span>
+        </div>
+        <p class="newbest hidden" id="newBest">NEW BEST!</p>
+        <button class="bigbtn" id="retry" type="button"><span class="btn-emoji" aria-hidden="true">🦫</span> GO AGAIN</button>
+      </div>
+    </div>
+
+    <div id="debugTag">build —</div>
+    <div id="debugState">mode: —</div>
+  </div>
+
+  <script src="game.js?v=27.9.3-playfun-mobile"></script>
+</body>
+</html>
