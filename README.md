@@ -1,12 +1,10 @@
 # CapyRizzle Rush
 
-A one-button endless racer starring **Rizzle**, the fire-chief capybara, hauling his firetruck through a burning city. Built for **[CapyJam 2026](https://x.com/_summer_plays_)** — submissions open May 28, deadline **June 11, 2026**.
+Play in the browser: [rizzlenft.github.io/capyrizzle](https://rizzlenft.github.io/capyrizzle/) — no download, no login, no wallet.
 
-## Play (browser)
+A one-button endless racer starring **Rizzle**, the fire-chief capybara, hauling his firetruck through a burning city. Built for **[CapyJam 2026](https://x.com/_summer_plays_)**.
 
-Open the hosted game URL (GitHub Pages or your deploy) — **no download, no login, no wallet.**
-
-Local dev:
+## Play locally
 
 ```bash
 python3 serve.py 5777
